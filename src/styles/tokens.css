@@ -1,0 +1,36 @@
+/* Moises mobile mixer palette — sampled from the reference screenshot. Use these tokens, not raw colours. */
+:root {
+  color-scheme: dark;
+
+  --bg-top: #0e151b;
+  --bg-mid: #1b242b;
+  --bg-bottom: #263137;
+  --bg-gradient: linear-gradient(180deg, var(--bg-top) 0%, #10171d 12%, var(--bg-mid) 55%, var(--bg-bottom) 100%);
+
+  --surface: #1f282f; /* sheets, cards */
+  --surface-raised: #2a333b;
+  --surface-hover: #2f3941;
+
+  --text: #ffffff;
+  --text-secondary: #a9a9ab; /* time labels */
+  --text-muted: #6c6f78; /* muted stems, ⋮ dots */
+
+  --track: #5a6169; /* slider remaining track */
+  --track-seek: #90979d; /* seek bar remaining track */
+  --track-dim: #3d444b;
+  --border: #444851; /* outlines (steppers, buttons) */
+  --border-subtle: #2c353c;
+
+  --accent: #ffffff;
+  --on-accent: #0e151b;
+  --danger: #ff6b6b;
+  --heart: #4da3ff;
+  --heart-glow: rgba(77, 163, 255, 0.45);
+
+  --radius-pill: 999px;
+  --radius-sheet: 20px;
+  --radius-card: 12px;
+
+  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --column: 520px;
+}
