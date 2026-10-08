@@ -468,6 +468,11 @@ button:disabled {
   align-items: center;
   height: 48px;
   color: var(--text);
+  /* Long-press solos: no iOS callout, text selection or double-tap zoom while holding. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
 }
 
 .stem-row__icon svg {
@@ -497,18 +502,6 @@ button:disabled {
 .stem-row__menu svg {
   width: 20px;
   height: 20px;
-}
-
-.stem-row--solo .stem-row__icon::after {
-  content: '';
-  position: absolute;
-  bottom: 2px;
-  left: 50%;
-  width: 4px;
-  height: 4px;
-  margin-left: -2px;
-  border-radius: 50%;
-  background: var(--text);
 }
 
 .player__bottom {

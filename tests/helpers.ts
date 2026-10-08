@@ -20,7 +20,7 @@ export function engineState(page: Page) {
       position: number;
       speed: number;
       pitch: number;
-      stems: { name: string; muted: boolean; soloed: boolean; volume: number }[];
+      stems: { name: string; muted: boolean; volume: number }[];
       metronome: { enabled: boolean; bpm: number; offset: number; detecting: boolean; beats: number[] | null; downbeat: number };
     };
   });

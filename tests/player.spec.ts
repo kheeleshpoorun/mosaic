@@ -83,15 +83,47 @@ test('tapping a stem icon mutes it', async ({ page }) => {
   await expect(row).not.toHaveClass(/stem-row--off/);
 });
 
-test('solo from the stem menu silences the other stems', async ({ page }) => {
-  await page.locator('.stem-row').first().locator('.stem-row__menu').click();
-  await page.getByRole('button', { name: 'Solo' }).click();
+test('solo mutes the other stems, and solo again unmutes them', async ({ page }) => {
+  const first = page.locator('.stem-row').first();
+  await first.locator('.stem-row__menu').click();
+  await page.getByRole('button', { name: 'Solo', exact: true }).click();
+  await expect(page.locator('.stem-row--off')).toHaveCount(STEM_COUNT - 1);
+  await expect(first).not.toHaveClass(/stem-row--off/);
+  const stems = (await engineState(page)).stems;
+  expect(stems.map((s) => s.muted)).toEqual(stems.map((_, i) => i !== 0));
+
+  // Already the only stem playing: the option now unmutes everything.
+  await page.getByRole('button', { name: 'Unmute all' }).click();
+  await expect(page.locator('.stem-row--off')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Solo', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  // Soloing a muted stem unmutes it and mutes the rest.
+  const last = page.locator('.stem-row').last();
+  await last.locator('.stem-row__icon').click();
+  await last.locator('.stem-row__menu').click();
+  await page.getByRole('button', { name: 'Solo', exact: true }).click();
   await page.keyboard.press('Escape');
   await expect(page.locator('.stem-row--off')).toHaveCount(STEM_COUNT - 1);
-  await expect(page.locator('.stem-row').first()).not.toHaveClass(/stem-row--off/);
+  await expect(last).not.toHaveClass(/stem-row--off/);
+});
 
-  await page.getByRole('button', { name: 'More options' }).click();
-  await page.getByRole('button', { name: 'Reset mix' }).click();
+test('holding a stem icon solos it, holding again unmutes all', async ({ page }) => {
+  const first = page.locator('.stem-row').first();
+  const hold = async () => {
+    await first.locator('.stem-row__icon').hover();
+    await page.mouse.down();
+    await page.waitForTimeout(700);
+    await page.mouse.up();
+  };
+
+  await hold();
+  await expect(page.locator('.stem-row--off')).toHaveCount(STEM_COUNT - 1);
+  // The click that ends the hold must not mute the soloed stem.
+  await expect(first).not.toHaveClass(/stem-row--off/);
+  expect((await engineState(page)).stems[0].muted).toBe(false);
+
+  await hold();
   await expect(page.locator('.stem-row--off')).toHaveCount(0);
 });
 

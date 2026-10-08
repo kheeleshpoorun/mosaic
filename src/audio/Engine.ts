@@ -15,7 +15,6 @@ export interface StemState {
   name: string;
   volume: number; // slider position 0..1
   muted: boolean;
-  soloed: boolean;
 }
 
 /** Where each stem is in the load pipeline (drives the loading modal). */
@@ -93,7 +92,7 @@ export class Engine {
       loadPhases: song.stems.map(() => 'queued'),
       playing: false,
       duration: 0,
-      stems: song.stems.map((s) => ({ name: s.name, volume: DEFAULT_VOLUME, muted: false, soloed: false })),
+      stems: song.stems.map((s) => ({ name: s.name, volume: DEFAULT_VOLUME, muted: false })),
       speed: 1,
       pitch: 0,
       metronome: {
@@ -272,15 +271,21 @@ export class Engine {
   toggleMute(i: number) {
     this.updateStem(i, { muted: !this.state.stems[i].muted });
   }
+  /**
+   * Solo is a shortcut over mute: it mutes every other stem and unmutes this one.
+   * If this stem is already the only one playing, it unmutes everything instead.
+   */
   toggleSolo(i: number) {
-    this.updateStem(i, { soloed: !this.state.stems[i].soloed });
+    const unmuteAll = Engine.isSolo(this.state.stems, i);
+    this.set({ stems: this.state.stems.map((s, j) => ({ ...s, muted: !unmuteAll && j !== i })) });
+    this.applyGains();
   }
   resetStem(i: number) {
-    this.updateStem(i, { volume: DEFAULT_VOLUME, muted: false, soloed: false });
+    this.updateStem(i, { volume: DEFAULT_VOLUME, muted: false });
   }
-  /** Restore every stem to default volume, unmuted and unsoloed. */
+  /** Restore every stem to default volume and unmuted. */
   resetMix() {
-    this.set({ stems: this.state.stems.map((s) => ({ ...s, volume: DEFAULT_VOLUME, muted: false, soloed: false })) });
+    this.set({ stems: this.state.stems.map((s) => ({ ...s, volume: DEFAULT_VOLUME, muted: false })) });
     this.applyGains();
   }
 
@@ -289,10 +294,13 @@ export class Engine {
     this.applyGains();
   }
 
-  /** A stem is heard when it isn't muted and either nothing is soloed or it is soloed itself. */
   static audible(stems: StemState[], i: number): boolean {
-    const anySolo = stems.some((s) => s.soloed);
-    return !stems[i].muted && (!anySolo || stems[i].soloed);
+    return !stems[i].muted;
+  }
+
+  /** True when stem `i` is the only unmuted stem. */
+  static isSolo(stems: StemState[], i: number): boolean {
+    return stems.every((s, j) => s.muted === (j !== i));
   }
 
   private applyGains() {

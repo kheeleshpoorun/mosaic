@@ -175,8 +175,8 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
       )}
       {typeof panel === 'object' && panel !== null && (
         <Sheet title={stemMeta(state.stems[panel.stem].name).label} onClose={closePanel}>
-          <MenuItem active={state.stems[panel.stem].soloed} onClick={() => engine.toggleSolo(panel.stem)}>
-            Solo
+          <MenuItem onClick={() => engine.toggleSolo(panel.stem)}>
+            {Engine.isSolo(state.stems, panel.stem) ? 'Unmute all' : 'Solo'}
           </MenuItem>
           <MenuItem active={state.stems[panel.stem].muted} onClick={() => engine.toggleMute(panel.stem)}>
             Mute

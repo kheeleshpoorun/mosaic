@@ -77,7 +77,7 @@ design/                     Local Moises reference screenshots (git-ignored)
 
 - **Every stem is decoded to an `AudioBuffer`** and played by an `AudioBufferSourceNode`: `source → GainNode → master → limiter → [SoundTouch] → destination`. Don't go back to one `<audio>` element per stem. Separate media elements can't be kept sample-locked, and the drums audibly drift. The cost is memory (~120 MB per 5‑minute stereo stem at 44.1 kHz). Decoding runs two stems at a time to cap the peak.
 - **Sync**: `startSources(offset)` stops every source, creates new ones and calls `start(when, offset)` with the **same** `when` (`currentTime + 50 ms`) on all of them, so they begin on the same audio frame. Position comes from that shared anchor (`anchorOffset + (ctx.currentTime − anchorTime) · speed`). Play, seek and skip all go through `startSources`.
-- **Mute/solo rule**: a stem is audible when `!muted && (!anySolo || soloed)`. See `Engine.audible`. Muted stems keep playing at gain 0 so they stay in sync.
+- **Mute/solo rule**: a stem is audible when it isn't muted. Solo is not a separate state: `toggleSolo` mutes every other stem, or unmutes all of them when the stem is already the only one unmuted (`Engine.isSolo`, which also flips the menu label to "Unmute all"). Muted stems keep playing at gain 0 so they stay in sync.
 - **Volume**: slider position 0..1. `DEFAULT_VOLUME = 0.75` is unity gain, and `sliderToGain` is quadratic. A limiter on the master stops boosted stems from clipping.
 - **Speed** is `playbackRate` on every source, set with `setValueAtTime` on one shared time, and the anchor is re-based. SoundTouch gets the same `playbackRate` (so it cancels the pitch change) plus `pitchSemitones`. SoundTouch is bypassed when speed = 1 and pitch = 0.
 - **Metronome** connects straight to the destination, so pitch shifting never affects it. Clicks fall on **tracked beats** (`beats[k] + offset`). With a fixed grid (`beats === null`, after a manual tempo change or a `songs.json` bpm) they're at `offset + k·60/bpm`. Track times are mapped to the context clock with `toCtxTime` and scheduled up to 120 ms ahead. The accent falls on every 4th beat from `downbeat`.
@@ -93,6 +93,7 @@ design/                     Local Moises reference screenshots (git-ignored)
 - Features deliberately left out: chord strip, lyrics, sections, A‑B loop, isolate chips. Don't add dead placeholder buttons for them.
 - **Dev server honours HTTP Range** (`library-plugin.ts` middleware returns 206). Keep it: browsers and range-based fetches depend on it.
 - `Slider` is driven by native `input`/`change` listeners and only writes `value` to the element while not dragging. Don't turn it back into a controlled React range input: the seek bar's value changes every frame and fights the drag.
+- Tapping a stem icon toggles mute; holding it for 500 ms calls `toggleSolo` (as in Moises), and the click that ends the hold is swallowed. The ⋮ menu keeps Solo / Unmute all too.
 - Icons are inline SVG (`currentColor`, 1.5 stroke, round caps). Add new ones to `components/icons/index.tsx`.
 - Touch targets are at least 44px. Keep `env(safe-area-inset-*)` padding.
 
