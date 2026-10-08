@@ -18,9 +18,13 @@ export interface StemState {
   soloed: boolean;
 }
 
+/** Where each stem is in the load pipeline (drives the loading modal). */
+export type StemLoadPhase = 'queued' | 'fetching' | 'decoding' | 'done';
+
 export interface EngineState {
   status: 'loading' | 'ready' | 'error';
   loaded: number; // stems decoded
+  loadPhases: StemLoadPhase[]; // per stem, same order as `stems`
   error?: string;
   playing: boolean;
   duration: number;
@@ -86,6 +90,7 @@ export class Engine {
     this.state = {
       status: 'loading',
       loaded: 0,
+      loadPhases: song.stems.map(() => 'queued'),
       playing: false,
       duration: 0,
       stems: song.stems.map((s) => ({ name: s.name, volume: DEFAULT_VOLUME, muted: false, soloed: false })),
@@ -134,12 +139,17 @@ export class Engine {
         const i = next++;
         const stem = song.stems[i];
         try {
-          this.tracks[i].buffer = await this.ctx.decodeAudioData(await readStem(stem));
+          this.setLoadPhase(i, 'fetching');
+          const data = await readStem(stem);
+          if (this.disposed) return;
+          this.setLoadPhase(i, 'decoding');
+          this.tracks[i].buffer = await this.ctx.decodeAudioData(data);
         } catch {
           throw new Error(`Could not load "${stem.name}"`);
         }
         loaded += 1;
         if (!this.disposed) this.set({ loaded });
+        this.setLoadPhase(i, 'done');
       }
     };
     try {
@@ -151,6 +161,11 @@ export class Engine {
     } catch (e) {
       if (!this.disposed) this.set({ status: 'error', error: (e as Error).message });
     }
+  }
+
+  private setLoadPhase(i: number, phase: StemLoadPhase) {
+    if (this.disposed) return;
+    this.set({ loadPhases: this.state.loadPhases.map((p, j) => (j === i ? phase : p)) });
   }
 
   // ---------- transport ----------

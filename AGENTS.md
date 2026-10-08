@@ -26,6 +26,19 @@ Tests live in `tests/` and run against a production build under the GitHub Pages
 
 `BASE_PATH` sets Vite's `base`. CI sets it to `/<repo>/`. Always build URLs from `import.meta.env.BASE_URL` and never hard-code `/`.
 
+## Versioning
+
+**Bump the version yourself** before you finish any change that affects the shipped app. Don't wait to be asked. Follow semver (`MAJOR.MINOR.PATCH`), and update `APP_VERSION` in `src/version.ts`, `"version"` in `package.json` and the root `version` fields in `package-lock.json` together.
+
+1. **Look at the change set.** Run `git status` and `git diff HEAD` and include untracked files. If there's no commit yet, treat everything as new.
+2. **Start from the version at `HEAD`** (`git show HEAD:src/version.ts`), not the working tree. That way repeated edits in one change set bump once. If the working tree already has a bump and the new work deserves a bigger one, raise it. For example, if the tree already has a patch bump, a new feature makes it a minor bump from `HEAD`. Never stack bumps.
+3. **Pick the level from the biggest change:**
+   - **Major** (`x.0.0`): something existing users or links would break on. Examples: share URLs stop resolving (`slugify` or `?song=` changes), the stem naming convention or `songs.json` format stops accepting files that used to work, or a user-facing feature is removed.
+   - **Minor** (`1.x.0`): a new user-visible feature or capability, or a clear behaviour change that stays backwards compatible. Examples: a new control or sheet, a new import format, a reworked loading experience.
+   - **Patch** (`1.1.x`): bug fixes, visual polish, copy changes, performance work and refactors that change nothing the user can see.
+   - **No bump**: changes that don't ship in the app, such as tests only, docs (`README.md`, `AGENTS.md`), CI workflows or editor config.
+4. Bumping resets the lower parts to zero (`1.2.3` → `1.3.0` for a minor bump). Say which level you picked and why in your summary.
+
 ## Layout
 
 ```
@@ -47,7 +60,7 @@ src/components/Home/        Home page: drop zone, Library and Imported lists
 src/components/Player/      Header, StemRow, SeekBar, Slider, Transport, bottom sheets
 src/components/Footer.tsx   Version + credit line (home and player)
 src/components/icons/       Hand-drawn inline SVG line icons in the Moises style
-src/version.ts              APP_VERSION — bump together with package.json "version"
+src/version.ts              APP_VERSION — bumped per change set (see Versioning), in sync with package.json
 src/styles/tokens.css       Colour and size tokens sampled from the Moises screenshot
 src/styles/app.css          All component styles (BEM-ish class names)
 tests/                      Playwright specs (parse, home, player) + helpers.ts

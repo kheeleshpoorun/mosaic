@@ -14,6 +14,10 @@ test('share link opens the player directly', async ({ page }) => {
   await expect(page.locator('.footer')).toContainText('by Kheelesh Poorun');
 });
 
+test('loading modal closes once the stems are decoded', async ({ page }) => {
+  await expect(page.locator('.modal-backdrop')).toHaveCount(0);
+});
+
 test('play advances time and pause stops it', async ({ page }) => {
   await page.locator('.transport__play').click();
   await expect.poll(async () => (await engineState(page)).position).toBeGreaterThan(1);

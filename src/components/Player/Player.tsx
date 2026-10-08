@@ -8,6 +8,7 @@ import { toast } from '../../lib/toast';
 import type { SongSource } from '../../lib/types';
 import { Footer } from '../Footer';
 import { ChevronDownIcon, MoreVerticalIcon, ShareIcon } from '../icons';
+import { LoadingModal } from './LoadingModal';
 import { MetronomeSheet } from './MetronomeSheet';
 import { PitchSpeedSheet } from './PitchSpeedSheet';
 import { SeekBar } from './SeekBar';
@@ -123,18 +124,15 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
         </button>
       </header>
 
-      {state.status === 'loading' && (
-        <div className="player__status">
-          <div className="spinner" />
-          Loading stems… {state.loaded}/{state.stems.length}
-        </div>
-      )}
+      {state.status === 'loading' && <LoadingModal songName={song.name} state={state} />}
       {state.status === 'error' && (
-        <div className="player__status player__status--error">
-          {state.error}
-          <button type="button" className="pill-button" onClick={onClose}>
-            Back
-          </button>
+        <div className="modal-backdrop">
+          <div className="modal modal--error" role="alertdialog" aria-modal="true" aria-label="Error">
+            <p className="modal__title">{state.error}</p>
+            <button type="button" className="pill-button" onClick={onClose}>
+              Back
+            </button>
+          </div>
         </div>
       )}
 
