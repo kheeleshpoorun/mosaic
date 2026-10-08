@@ -932,7 +932,7 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(14, 21, 27, 0.85);
+  background: rgba(7, 11, 21, 0.85);
   border: 2px dashed var(--text);
   font-size: 22px;
   font-weight: 700;
