@@ -56,8 +56,9 @@ src/audio/beats.ts          Beat tracker: onset envelope → tempo (autocorrelat
                             Pure function of samples (unit-tested with synthetic drums in tests/beats.spec.ts)
 src/audio/beats.worker.ts   Runs analyzeBeats off the main thread
 src/audio/bpm.ts            detectBeats(buffer): mono downmix → worker (main-thread fallback)
+src/audio/peaks.ts          computePeaks(channels): per-stem waveform overview (RMS dB, gated). Pure, unit-tested
 src/components/Home/        Home page: drop zone, Library and Imported lists
-src/components/Player/      Header, StemRow, SeekBar, Slider, Transport, bottom sheets
+src/components/Player/      Header, StemRow, StemWave, SeekBar, Slider, Transport, bottom sheets
 src/components/Footer.tsx   Version + credit line (home and player)
 src/components/icons/       Hand-drawn inline SVG line icons in the Moises style
 src/version.ts              APP_VERSION — bumped per change set (see Versioning), in sync with package.json
@@ -89,7 +90,7 @@ design/                     Local Moises reference screenshots (git-ignored)
 ## UI rules
 
 - The look must match Moises (reference: `design/` screenshots, which are local only). Use the tokens in `tokens.css`, not new raw colours.
-- Mobile-first column (`--column: 520px`) with a vertical gradient background, white content and grey secondary text. Stem rows show only an icon, a thin white slider and a ⋮ menu. They have no names and no waveforms.
+- Mobile-first column (`--column: 520px`) with a vertical gradient background, white content and grey secondary text. Stem rows show only an icon, a thin white slider and a ⋮ menu, with no names. Behind the slider sits a faint, smooth, filled whole-song waveform (`StemWave`; the song ⋮ menu can hide it, remembered per viewer in localStorage as `mosaic:waveforms`): brighter where already played (clipped to `--progress` on `.stems`, so playback never redraws the canvas), scaled with the volume and dimmed when muted. It's `pointer-events: none`; the slider keeps all input. Peaks are computed once from the already-decoded buffer (`Engine.peaksFor`), never by fetching or decoding again.
 - Features deliberately left out: chord strip, lyrics, sections, A‑B loop, isolate chips. Don't add dead placeholder buttons for them.
 - **Dev server honours HTTP Range** (`library-plugin.ts` middleware returns 206). Keep it: browsers and range-based fetches depend on it.
 - `Slider` is driven by native `input`/`change` listeners and only writes `value` to the element while not dragging. Don't turn it back into a controlled React range input: the seek bar's value changes every frame and fights the drag.

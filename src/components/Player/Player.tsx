@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { detectBeats } from '../../audio/bpm';
 import { Engine } from '../../audio/Engine';
 import { useEngineState, usePosition } from '../../audio/hooks';
@@ -49,6 +49,26 @@ function writeCachedBeats(id: string, value: CachedBeats) {
   }
 }
 
+/** Per-viewer preference: waveforms behind the stem sliders (on unless switched off). */
+const WAVES_KEY = 'mosaic:waveforms';
+
+function readShowWaves(): boolean {
+  try {
+    return localStorage.getItem(WAVES_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+}
+
+function writeShowWaves(show: boolean) {
+  try {
+    if (show) localStorage.removeItem(WAVES_KEY);
+    else localStorage.setItem(WAVES_KEY, 'off');
+  } catch {
+    // storage unavailable — the choice lasts for this session only
+  }
+}
+
 export function Player({ song, onClose }: { song: SongSource; onClose: () => void }) {
   const [engine, setEngine] = useState<Engine | null>(null);
 
@@ -68,6 +88,10 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
   const state = useEngineState(engine);
   const position = usePosition(engine, state.playing);
   const [panel, setPanel] = useState<Panel>(null);
+  const [showWaves, setShowWaves] = useState(readShowWaves);
+  // While the seek bar is dragged, the waveform highlight follows the drag, not the playhead.
+  const [scrub, setScrub] = useState<number | null>(null);
+  const shown = scrub ?? position;
   const closePanel = useCallback(() => setPanel(null), []);
 
   const runDetection = useCallback(async () => {
@@ -136,14 +160,14 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
         </div>
       )}
 
-      <div className="stems">
+      <div className="stems" style={{ '--progress': `${state.duration ? (shown / state.duration) * 100 : 0}%` } as CSSProperties}>
         {state.stems.map((_, i) => (
-          <StemRow key={i} engine={engine} stems={state.stems} index={i} onMenu={() => setPanel({ stem: i })} />
+          <StemRow key={i} engine={engine} stems={state.stems} index={i} showWave={showWaves} onMenu={() => setPanel({ stem: i })} />
         ))}
       </div>
 
       <div className="player__bottom">
-        <SeekBar engine={engine} state={state} position={position} />
+        <SeekBar engine={engine} state={state} position={position} scrub={scrub} onScrub={setScrub} />
         <Transport engine={engine} state={state} onMetronome={() => setPanel('metronome')} onPitch={() => setPanel('pitch')} />
         <Footer />
       </div>
@@ -162,6 +186,15 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
               Copy share link
             </MenuItem>
           )}
+          <MenuItem
+            onClick={() => {
+              writeShowWaves(!showWaves);
+              setShowWaves(!showWaves);
+              closePanel();
+            }}
+          >
+            {showWaves ? 'Hide waveforms' : 'Show waveforms'}
+          </MenuItem>
           <MenuItem
             onClick={() => {
               engine.resetMix();

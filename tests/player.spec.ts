@@ -190,3 +190,64 @@ test('space bar toggles playback', async ({ page }) => {
   await page.keyboard.press('Space');
   await expect.poll(async () => (await engineState(page)).playing).toBe(false);
 });
+
+test('each stem shows a waveform that follows the playhead and the mute state', async ({ page }) => {
+  const waves = page.locator('.stem-wave');
+  await expect(waves).toHaveCount(STEM_COUNT);
+
+  // Every base canvas has something drawn on it.
+  const inked = await page.$$eval('.stem-wave__base', (canvases) =>
+    canvases.map((c) => {
+      const canvas = c as HTMLCanvasElement;
+      const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+      let alpha = 0;
+      for (let i = 3; i < data.length; i += 4) alpha += data[i];
+      return canvas.width > 0 && alpha > 0;
+    }),
+  );
+  expect(inked).toEqual(Array(STEM_COUNT).fill(true));
+
+  // The played portion tracks the position.
+  const progress = () => page.locator('.stems').evaluate((el) => parseFloat((el as HTMLElement).style.getPropertyValue('--progress')));
+  expect(await progress()).toBe(0);
+  await clickSeek(page, 0.5);
+  await expect.poll(progress).toBeGreaterThan(40);
+
+  // Muting flattens the stem's waveform.
+  const row = page.locator('.stem-row').first();
+  await row.locator('.stem-row__icon').click();
+  await expect(row.locator('.stem-wave')).toHaveCSS('--level', '0.08');
+});
+
+test('waveforms can be hidden from the song menu, and the choice sticks', async ({ page }) => {
+  await expect(page.locator('.stem-wave')).toHaveCount(STEM_COUNT);
+  await page.getByRole('button', { name: 'More options' }).click();
+  await page.getByRole('button', { name: 'Hide waveforms' }).click();
+  await expect(page.locator('.stem-wave')).toHaveCount(0);
+
+  await page.reload();
+  await expect(page.locator('.transport__play')).toBeEnabled({ timeout: 45_000 });
+  await expect(page.locator('.stem-wave')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'More options' }).click();
+  await page.getByRole('button', { name: 'Show waveforms' }).click();
+  await expect(page.locator('.stem-wave')).toHaveCount(STEM_COUNT);
+});
+
+test('the waveform highlight follows the seek bar while dragging', async ({ page }) => {
+  const progress = () => page.locator('.stems').evaluate((el) => parseFloat((el as HTMLElement).style.getPropertyValue('--progress')));
+  const box = (await page.locator('.seek .slider').boundingBox())!;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + 2, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.6, y, { steps: 8 });
+
+  // Mid-drag: the highlight has moved but the playhead hasn't.
+  await expect.poll(progress).toBeGreaterThan(50);
+  expect((await engineState(page)).position).toBeLessThan(1);
+
+  await page.mouse.up();
+  await expect.poll(async () => (await engineState(page)).position).toBeGreaterThan(0);
+  const { duration, position } = await engineState(page);
+  expect(await progress()).toBeCloseTo((position / duration) * 100, 0);
+});

@@ -490,8 +490,63 @@ button:disabled {
   color: var(--text-muted);
 }
 
+.stem-row__lane {
+  position: relative;
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+}
+
 .stem-row__slider {
+  position: relative;
+  z-index: 1;
   padding-right: 0;
+}
+
+/* faint whole-song waveform behind the volume slider; centred on the slider track */
+.stem-wave {
+  --level: 1;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: min(44px, 80%);
+  transform: translateY(-50%) scaleY(var(--level));
+  transition: transform 0.2s ease-out;
+  pointer-events: none;
+}
+
+.stem-wave canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.stem-wave__base {
+  opacity: var(--wave);
+  transition: opacity 0.2s;
+}
+
+.stem-wave__played {
+  position: absolute;
+  inset: 0;
+  opacity: var(--wave-played);
+  clip-path: inset(0 calc(100% - var(--progress, 0%)) 0 0);
+  transition: opacity 0.2s;
+}
+
+.stem-row--off .stem-wave__base,
+.stem-row--off .stem-wave__played {
+  opacity: var(--wave-off);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stem-wave,
+  .stem-wave__base,
+  .stem-wave__played {
+    transition: none;
+  }
 }
 
 .stem-row__menu {

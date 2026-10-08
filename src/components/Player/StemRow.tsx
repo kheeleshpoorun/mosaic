@@ -1,8 +1,9 @@
 import { useEffect, useRef, type PointerEvent } from 'react';
-import { Engine, type StemState } from '../../audio/Engine';
+import { DEFAULT_VOLUME, Engine, type StemState } from '../../audio/Engine';
 import { stemMeta } from '../../lib/stemMeta';
 import { MoreVerticalIcon, MuteSlash } from '../icons';
 import { Slider } from './Slider';
+import { StemWave } from './StemWave';
 
 /** Holding the icon this long solos the stem (as in Moises); a shorter tap mutes it. */
 const LONG_PRESS_MS = 500;
@@ -13,13 +14,15 @@ interface Props {
   engine: Engine;
   stems: StemState[];
   index: number;
+  showWave: boolean;
   onMenu: () => void;
 }
 
-export function StemRow({ engine, stems, index, onMenu }: Props) {
+export function StemRow({ engine, stems, index, showWave, onMenu }: Props) {
   const stem = stems[index];
   const { label, Icon } = stemMeta(stem.name);
   const audible = Engine.audible(stems, index);
+  const wave = showWave ? engine.peaksFor(index) : null;
 
   const timer = useRef<number | undefined>(undefined);
   const origin = useRef({ x: 0, y: 0 });
@@ -72,13 +75,16 @@ export function StemRow({ engine, stems, index, onMenu }: Props) {
         <Icon size={30} />
         {stem.muted && <MuteSlash size={30} className="stem-row__slash" />}
       </button>
-      <Slider
-        className="stem-row__slider"
-        label={`${label} volume`}
-        value={stem.muted ? 0 : stem.volume}
-        dim={!audible}
-        onChange={(v) => engine.setVolume(index, v)}
-      />
+      <div className="stem-row__lane">
+        {wave && <StemWave peaks={wave.peaks} span={wave.span} level={stem.muted ? 0 : Math.min(1, stem.volume / DEFAULT_VOLUME)} />}
+        <Slider
+          className="stem-row__slider"
+          label={`${label} volume`}
+          value={stem.muted ? 0 : stem.volume}
+          dim={!audible}
+          onChange={(v) => engine.setVolume(index, v)}
+        />
+      </div>
       <button type="button" className="icon-button stem-row__menu" aria-label={`${label} options`} onClick={onMenu}>
         <MoreVerticalIcon size={22} />
       </button>

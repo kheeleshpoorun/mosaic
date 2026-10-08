@@ -18,6 +18,9 @@
   --track: #4f5770; /* slider remaining track */
   --track-seek: #8a90a6; /* seek bar remaining track */
   --track-dim: #2d3449;
+  --wave: 0.12; /* stem waveform opacity: ahead of the playhead */
+  --wave-played: 0.3; /* already played */
+  --wave-off: 0.05; /* muted stem */
   --border: #3e455c; /* outlines (steppers, buttons) */
   --border-subtle: #212839;
 

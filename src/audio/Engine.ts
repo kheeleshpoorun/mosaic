@@ -2,6 +2,7 @@ import { SoundTouchNode } from '@soundtouchjs/audio-worklet';
 import processorUrl from '@soundtouchjs/audio-worklet/processor?url';
 import type { SongSource, StemSource } from '../lib/types';
 import { Metronome, firstBeatAtOrAfter, type MetronomeSettings } from './metronome';
+import { computePeaks } from './peaks';
 
 /** Slider position that equals unity gain (Moises shows the thumb at ~75% by default). */
 export const DEFAULT_VOLUME = 0.75;
@@ -37,6 +38,8 @@ interface Track {
   buffer: AudioBuffer | null;
   gain: GainNode;
   source: AudioBufferSourceNode | null;
+  /** Waveform overview (see computePeaks), filled in right after decoding. */
+  peaks: Float32Array | null;
 }
 
 /** Converts a slider position to a gain value (DEFAULT_VOLUME = unity, max ≈ +5 dB). */
@@ -83,7 +86,7 @@ export class Engine {
     this.tracks = song.stems.map(() => {
       const gain = this.ctx.createGain();
       gain.connect(this.master);
-      return { buffer: null, gain, source: null };
+      return { buffer: null, gain, source: null, peaks: null };
     });
 
     this.state = {
@@ -142,7 +145,9 @@ export class Engine {
           const data = await readStem(stem);
           if (this.disposed) return;
           this.setLoadPhase(i, 'decoding');
-          this.tracks[i].buffer = await this.ctx.decodeAudioData(data);
+          const buffer = await this.ctx.decodeAudioData(data);
+          this.tracks[i].buffer = buffer;
+          this.tracks[i].peaks = computePeaks(Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c)));
         } catch {
           throw new Error(`Could not load "${stem.name}"`);
         }
@@ -400,6 +405,16 @@ export class Engine {
     this.setMetronome({ bpm: b, beats: null, offset: ((anchor % period) + period) % period });
   }
 
+  /**
+   * Waveform overview of stem `i` and the fraction of the song's duration it spans (stems can be
+   * shorter than the longest one). Null until the stem is decoded.
+   */
+  peaksFor(i: number): { peaks: Float32Array; span: number } | null {
+    const { buffer, peaks } = this.tracks[i] ?? {};
+    if (!buffer || !peaks || !this.state.duration) return null;
+    return { peaks, span: Math.min(1, buffer.duration / this.state.duration) };
+  }
+
   /** Decoded audio used for BPM detection: the drums if present, else the first stem. */
   tempoBuffer(): AudioBuffer | null {
     const idx = this.state.stems.findIndex((s) => /drum|perc|beat/i.test(s.name));
@@ -411,7 +426,10 @@ export class Engine {
     window.clearInterval(this.timer);
     this.metronome.stop();
     this.stopSources();
-    this.tracks.forEach((t) => (t.buffer = null));
+    this.tracks.forEach((t) => {
+      t.buffer = null;
+      t.peaks = null;
+    });
     void this.ctx.close();
     this.listeners.clear();
   }
