@@ -45,7 +45,8 @@ test('unknown song link falls back to home', async ({ page }) => {
 
 test('importing stems names the song from the file names and plays it', async ({ page }) => {
   await page.goto('./');
-  const files = fs.readdirSync(LIBRARY).filter((f) => f.endsWith('.mp3'));
+  // Only the sample song's stems: several songs at once land in the Imported list instead of opening.
+  const files = fs.readdirSync(LIBRARY).filter((f) => f.startsWith(`${SONG_NAME}_`) && f.endsWith('.mp3'));
   await page.locator('input[type=file]').setInputFiles(files.map((f) => path.join(LIBRARY, f)));
 
   await expect(page).toHaveURL(/\?import=/);
