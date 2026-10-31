@@ -15,8 +15,8 @@ interface Props {
 }
 
 /**
- * Drum strip under the chord strip, read like a drum chart: a bar's pattern where the groove
- * starts or changes, a repeat sign (𝄎) for every bar that plays it again, and fills highlighted.
+ * Drum strip under the chord strip, read like a drum chart: every bar's own pattern, marked where
+ * the groove starts or changes, tagged 𝄎 where it plays the bar before again, and fills highlighted.
  * Scrolls under a fixed playhead, with the tempo and meter on a fixed badge; only the track's
  * transform changes per frame.
  */
@@ -85,14 +85,13 @@ const DrumChips = memo(function DrumChips({ analysis, active }: { analysis: Drum
       .join(' ');
     return (
       <span key={i} className={className} style={{ left: bar.start * PX_PER_SECOND, width: (bar.end - bar.start) * PX_PER_SECOND }}>
-        {bar.repeat ? (
-          <RepeatBarIcon size={22} />
-        ) : (
-          <>
-            {bar.kind === 'fill' && <span className="drums__tag">Fill</span>}
-            <MiniPattern steps={bar.steps} beats={bar.beats.length} />
-          </>
+        {bar.kind === 'fill' && <span className="drums__tag">Fill</span>}
+        {bar.repeat && (
+          <span className="drums__tag" aria-label="Same as before">
+            <RepeatBarIcon size={10} />
+          </span>
         )}
+        <MiniPattern steps={bar.steps} beats={bar.beats.length} />
       </span>
     );
   });

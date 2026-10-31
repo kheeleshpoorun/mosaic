@@ -168,13 +168,35 @@ interface ChartProps {
 /** The bars, four per line: a repeat sign for a bar played again, the current one lit with its beats. Re-renders once per beat. */
 const ChordChart = memo(function ChordChart({ chart, now, beat, numbers, pitch, songKey, onSeek }: ChartProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const lastRow = useRef(-1);
   const row = now >= 0 ? Math.floor(now / PER_ROW) : -1;
   const labels: Labels = { numbers, pitch, songKey };
 
-  // Keep the line playing now in view.
+  // Follow playback a page at a time: only when the line playing now has left the view, and only
+  // if the line before it was still on screen (otherwise the reader has scrolled elsewhere).
   useEffect(() => {
-    if (row < 0) return;
-    ref.current?.children[row * PER_ROW]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const prev = lastRow.current;
+    lastRow.current = row;
+    const chart = ref.current;
+    const body = chart?.closest('.sheet__body');
+    const line = chart?.children[row * PER_ROW];
+    if (row < 0 || !body || !line) return;
+    const view = body.getBoundingClientRect();
+    // The now/next header covers the top of the body: where it is now, and where it pins once scrolled.
+    const head = body.querySelector<HTMLElement>('.chord-head');
+    const top = head?.getBoundingClientRect().bottom ?? view.top;
+    const pinned = head
+      ? view.top + parseFloat(getComputedStyle(body).paddingTop) + parseFloat(getComputedStyle(head).top) + head.offsetHeight
+      : view.top;
+    const inView = (el: Element, whole: boolean) => {
+      const r = el.getBoundingClientRect();
+      return whole ? r.top >= top - 1 && r.bottom <= view.bottom + 1 : r.bottom > top && r.top < view.bottom;
+    };
+    if (inView(line, true)) return;
+    const before = prev >= 0 ? chart.children[prev * PER_ROW] : null;
+    if (before && !inView(before, false)) return;
+    // Turn the page: the playing line goes to the top, just under the header.
+    body.scrollTo({ top: body.scrollTop + line.getBoundingClientRect().top - pinned - 4, behavior: 'smooth' });
   }, [row]);
 
   return (

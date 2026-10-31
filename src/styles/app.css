@@ -554,16 +554,17 @@ button:disabled {
   }
 }
 
-/* drum strip: read like a drum chart (pattern where a groove starts, 𝄎 for repeats, fills marked) */
+/* drum strip: read like a drum chart (every bar's pattern, groove changes marked, 𝄎 tag on repeats, fills marked) */
 .drums {
   height: 64px;
 }
 
 .drums__chip {
   justify-content: center;
-  gap: 6px;
   top: 9px;
   bottom: 9px;
+  /* No padding: the pattern spans the whole bar, so its hits line up with the playhead. */
+  padding: 0;
 }
 
 .drums__chip--change {
@@ -574,14 +575,32 @@ button:disabled {
   border-left-color: var(--text);
 }
 
+/* Same groove as the bar before: still drawn (the hits may differ a little), with a 𝄎 tag above it. */
+.drums__chip--repeat {
+  overflow: visible;
+}
+
+.drums__chip--repeat .drums__tag {
+  top: -8px;
+  left: 4px;
+  display: flex;
+}
+
 .drums__chip--fill {
+  /* The box reaches the strip's top edge to hold the tag; the pattern stays on the shared rows. */
+  top: 0;
+  padding-top: 9px;
   border-radius: 6px;
   background: var(--surface-raised);
 }
 
+/* Out of the flow, so it never squeezes or shifts the fill's pattern. */
 .drums__tag {
-  flex-shrink: 0;
-  font-size: 11px;
+  position: absolute;
+  top: 1px;
+  left: 5px;
+  font-size: 8px;
+  line-height: 8px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1329,8 +1348,6 @@ button:disabled {
   color: var(--text);
   font-size: 15px;
   font-weight: 600;
-  /* clears the pinned now/next header when the chart follows playback */
-  scroll-margin-top: 110px;
 }
 
 .chord-chart__bar--empty {

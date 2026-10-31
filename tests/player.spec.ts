@@ -336,6 +336,54 @@ test('tapping a chord chart bar or a song map progression seeks there', async ({
   await expect(sheet.locator('.chord-meta')).toContainText(`Bar ${first} of`);
 });
 
+test('the chord chart turns a page when playback leaves the view, and leaves a reader who scrolled away alone', async ({ page }) => {
+  await expect.poll(() => page.locator('.chords__chip').count(), { timeout: 45_000 }).toBeGreaterThan(10);
+  await page.getByRole('button', { name: /^Chord chart/ }).click();
+  const sheet = page.getByRole('dialog', { name: 'Chords' });
+  const body = sheet.locator('.sheet__body');
+  const bars = sheet.locator('.chord-chart__bar');
+  const scrollTop = () => body.evaluate((el) => el.scrollTop);
+  // DOM clicks seek like a tap, without Playwright scrolling the bar into view first.
+  const seekTo = (k: number) => bars.nth(k).evaluate((el) => (el as HTMLElement).click());
+  const settle = () => page.waitForTimeout(800);
+  await seekTo(0);
+  await expect(bars.first()).toHaveClass(/is-now/);
+  await settle();
+  expect(await scrollTop()).toBe(0);
+
+  // A bar on a line already in full view: the chart doesn't move (no creeping row by row).
+  await seekTo(4);
+  await expect(bars.nth(4)).toHaveClass(/is-now/);
+  await settle();
+  expect(await scrollTop()).toBe(0);
+
+  // The first line that isn't fully in view: playing it turns the page, putting it under the header.
+  const k = await sheet.locator('.chord-chart').evaluate((chart) => {
+    const view = chart.closest('.sheet__body')!.getBoundingClientRect();
+    const rows = [...chart.children].filter((_, i) => i % 4 === 0);
+    return rows.findIndex((el) => el.getBoundingClientRect().bottom > view.bottom) * 4;
+  });
+  expect(k).toBeGreaterThan(0);
+  await seekTo(k);
+  const gap = () =>
+    sheet.evaluate((el) => {
+      const head = el.querySelector('.chord-head')!.getBoundingClientRect().bottom;
+      return el.querySelector('.chord-chart__bar.is-now')!.getBoundingClientRect().top - head;
+    });
+  await expect.poll(gap).toBeGreaterThanOrEqual(0);
+  await expect.poll(gap).toBeLessThan(12);
+
+  // Scrolled down to the song map: playback moving on doesn't pull the reader back to the chart.
+  await body.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
+  await settle();
+  const atMap = await scrollTop();
+  expect(atMap).toBeGreaterThan(0);
+  await seekTo(k + 8);
+  await expect(bars.nth(k + 8)).toHaveClass(/is-now/);
+  await settle();
+  expect(await scrollTop()).toBe(atMap);
+});
+
 test('guitar and piano shapes of the song\'s chords are tucked away until opened', async ({ page }) => {
   await expect.poll(() => page.locator('.chords__chip').count(), { timeout: 45_000 }).toBeGreaterThan(10);
   await clickSeek(page, 0.5);
@@ -401,10 +449,29 @@ test('drum strip reads like a chart under the chord strip, and follows the playh
   const chips = page.locator('.drums__chip');
   await expect.poll(() => chips.count(), { timeout: 45_000 }).toBeGreaterThan(10);
   await expect(page.locator('.drums__badge')).toHaveText(/^\d+ BPM[34]\/4$/);
-  // Grooves are drawn where they start; bars that play them again are repeat signs.
+  // Every bar shows its own pattern: groove changes are marked, and bars that play the one before
+  // again are drawn too, with a small 𝄎 tag rather than a repeat sign in place of the pattern.
   expect(await page.locator('.drums__chip--change .drums__mini').count()).toBeGreaterThan(0);
-  expect(await page.locator('.drums__chip--repeat svg').count()).toBeGreaterThan(0);
-  await expect(page.locator('.drums__chip--repeat .drums__mini')).toHaveCount(0);
+  const repeats = page.locator('.drums__chip--repeat');
+  expect(await repeats.count()).toBeGreaterThan(0);
+  expect(await repeats.locator('.drums__mini').count()).toBe(await repeats.count());
+  expect(await repeats.locator('.drums__tag svg').count()).toBe(await repeats.count());
+  expect(await page.locator('.drums__chip .drums__mini').count()).toBe(await chips.count());
+  // Every drawn pattern (fills too, despite their tag) spans its whole bar, so hits line up with time.
+  const spans = await page.locator('.drums__chip').evaluateAll((els) =>
+    els.flatMap((chip) => {
+      const mini = chip.querySelector('.drums__mini');
+      if (!mini) return [];
+      const c = chip.getBoundingClientRect();
+      const m = mini.getBoundingClientRect();
+      return [{ left: m.left - c.left, right: c.right - m.right }];
+    }),
+  );
+  expect(spans.length).toBeGreaterThan(0);
+  for (const { left, right } of spans) {
+    expect(left).toBeLessThanOrEqual(2); // just the bar line
+    expect(right).toBeLessThanOrEqual(0.5);
+  }
 
   // Between the chord strip and the first stem row.
   const chords = (await page.locator('.chords').boundingBox())!;
