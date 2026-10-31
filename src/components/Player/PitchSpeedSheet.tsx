@@ -2,14 +2,22 @@ import type { Engine, EngineState } from '../../audio/Engine';
 import { Sheet, Stepper } from './Sheet';
 import { Slider } from './Slider';
 
-export function PitchSpeedSheet({ engine, state, onClose }: { engine: Engine; state: EngineState; onClose: () => void }) {
+interface Props {
+  engine: Engine;
+  state: EngineState;
+  /** Detected key, e.g. "Am" or "Am → Bm" when transposed ("semitones" when unknown). */
+  keyLabel: string;
+  onClose: () => void;
+}
+
+export function PitchSpeedSheet({ engine, state, keyLabel, onClose }: Props) {
   const { pitch, speed } = state;
   return (
     <Sheet title="Pitch & speed" onClose={onClose}>
       <div className="sheet-row">
         <span>
           Key
-          <small>semitones</small>
+          <small className="key-label">{keyLabel}</small>
         </span>
         <Stepper
           label="pitch"

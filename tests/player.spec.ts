@@ -271,3 +271,68 @@ test('the waveform highlight follows the seek bar while dragging', async ({ page
   const { duration, position } = await engineState(page);
   expect(await progress()).toBeCloseTo((position / duration) * 100, 0);
 });
+
+test('chord strip shows the key and the chords on top of the stems, and follows the playhead', async ({ page }) => {
+  const chips = page.locator('.chords__chip');
+  await expect.poll(() => chips.count(), { timeout: 45_000 }).toBeGreaterThan(10);
+  await expect(page.locator('.chords__key')).toHaveText(/^Key[A-G][♯♭]?m?$/);
+
+  // Above the first stem row.
+  const strip = (await page.locator('.chords').boundingBox())!;
+  const firstStem = (await page.locator('.stem-row').first().boundingBox())!;
+  expect(strip.y + strip.height).toBeLessThanOrEqual(firstStem.y);
+
+  // Seeking scrolls the strip and highlights the chord under the playhead.
+  const shift = () => page.locator('.chords__track').evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).m41);
+  expect(await shift()).toBe(0);
+  await clickSeek(page, 0.5);
+  await expect.poll(shift).toBeLessThan(-1000);
+  await expect(page.locator('.chords__chip--active')).toHaveCount(1);
+});
+
+test('tapping the chord strip opens guitar and piano diagrams', async ({ page }) => {
+  await expect.poll(() => page.locator('.chords__chip').count(), { timeout: 45_000 }).toBeGreaterThan(10);
+  await clickSeek(page, 0.5);
+  await page.getByRole('button', { name: /^Chord diagrams/ }).click();
+  const sheet = page.getByRole('dialog', { name: 'Chords' });
+  await expect(sheet.locator('.chord-now__name')).toHaveText(/^[A-G]/);
+  await expect(sheet.locator('svg.guitar')).toBeVisible();
+  await sheet.getByRole('button', { name: 'Piano' }).click();
+  await expect(sheet.locator('svg.piano')).toBeVisible();
+  expect(await sheet.locator('.piano .is-on').count()).toBeGreaterThanOrEqual(3);
+});
+
+test('key and chord names follow the pitch, in the strip and in Pitch & speed', async ({ page }) => {
+  await expect.poll(() => page.locator('.chords__chip').count(), { timeout: 45_000 }).toBeGreaterThan(10);
+  const badge = page.locator('.chords__key span');
+  const key = await badge.textContent();
+  const firstChord = await page.locator('.chords__chip').first().textContent();
+
+  // The key badge opens Pitch & speed, whose Key row names the key.
+  await page.locator('.chords__key').click();
+  await expect(page.locator('.key-label')).toHaveText(key!);
+  await page.getByRole('button', { name: 'Increase pitch' }).click();
+  await page.getByRole('button', { name: 'Increase pitch' }).click();
+  await expect(page.locator('.key-label')).toHaveText(new RegExp(`^${key} → `));
+  const transposed = (await page.locator('.key-label').textContent())!.split(' → ')[1];
+  expect(transposed).not.toBe(key);
+
+  await page.keyboard.press('Escape');
+  await expect(badge).toHaveText(transposed);
+  await expect(page.locator('.chords__chip').first()).not.toHaveText(firstChord!);
+});
+
+test('chords can be hidden from the song menu, and the choice sticks', async ({ page }) => {
+  await expect(page.locator('.chords')).toBeVisible();
+  await page.getByRole('button', { name: 'More options' }).click();
+  await page.getByRole('button', { name: 'Hide chords' }).click();
+  await expect(page.locator('.chords')).toHaveCount(0);
+
+  await page.reload();
+  await expect(page.locator('.transport__play')).toBeEnabled({ timeout: 45_000 });
+  await expect(page.locator('.chords')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'More options' }).click();
+  await page.getByRole('button', { name: 'Show chords' }).click();
+  await expect(page.locator('.chords')).toBeVisible();
+});

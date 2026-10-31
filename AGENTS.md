@@ -4,7 +4,7 @@ Guidance for AI coding agents and contributors working on this repo.
 
 ## What this is
 
-Mosaic is a static single-page app that copies the **Moises mobile mixer**. It plays song stems with per-stem mute, solo and volume, a metronome, and pitch and speed controls. There is **no backend**, and that is a hard constraint:
+Mosaic is a static single-page app that copies the **Moises mobile mixer**. It plays song stems with per-stem mute, solo and volume, a metronome, pitch and speed controls, and a chord strip with the song's key. There is **no backend**, and that is a hard constraint:
 
 - **Library songs** live in `library/` and are copied into the build. They can be shared with `?song=<slug>`, which skips the home page.
 - **Imported songs** come from drag and drop or the file picker. They exist only in memory as `File`s / blob URLs and can't be shared. Don't add features that assume a server.
@@ -57,9 +57,15 @@ src/audio/beats.ts          Beat tracker: onset envelope → tempo (autocorrelat
 src/audio/beats.worker.ts   Runs analyzeBeats off the main thread
 src/audio/bpm.ts            detectBeats(buffer): mono downmix → worker (main-thread fallback)
 src/audio/peaks.ts          computePeaks(channels): per-stem waveform overview (RMS dB, gated). Pure, unit-tested
+src/audio/chords.ts        Chord + key recogniser: beat-synchronous chroma (harmonic stems + bass stem) → templates
+                            (maj, min, 7, maj7, m7, N) → Viterbi → key. Pure, unit-tested in tests/chords.spec.ts
+src/audio/chords.worker.ts  Runs analyzeChords off the main thread
+src/audio/chordDetect.ts    detectChords(buffers, beats): mixes/decimates stems to ~11 kHz → worker (main-thread fallback)
+src/lib/chords.ts           Chord/key names (transposed, ♯/♭ spelled by key), chord tones, guitar shapes
 src/audio/pitchDelay.ts     measurePitchDelay: SoundTouch's processing delay, measured offline per speed/pitch (cached)
 src/components/Home/        Home page: drop zone, Library and Imported lists
-src/components/Player/      Header, StemRow, StemWave, SeekBar, Slider, Transport, bottom sheets
+src/components/Player/      Header, ChordStrip (+ useChords, ChordSheet diagrams), StemRow, StemWave, SeekBar, Slider,
+                            Transport, bottom sheets
 src/components/Footer.tsx   Version + credit line (home and player)
 src/components/icons/       Hand-drawn inline SVG line icons in the Moises style
 src/version.ts              APP_VERSION — bumped per change set (see Versioning), in sync with package.json
@@ -85,6 +91,7 @@ design/                     Local Moises reference screenshots (git-ignored)
 - **Metronome** connects straight to the output limiter (after SoundTouch), so pitch shifting never affects it. It plays one pre-rendered click (`renderClick`, a bright 2–5 kHz tick, Moises style) on every beat, with no accent. Its volume slider goes up to +12 dB (`metronomeGain`), and the output limiter ducks the mix under the click rather than letting it clip, so it stays audible over loud songs. Clicks fall on **tracked beats** (`beats[k] + offset`). With a fixed grid (`beats === null`, after a manual tempo change or a `songs.json` bpm) they're at `offset + k·60/bpm`. Track times are mapped to the context clock with `toCtxTime` and scheduled up to 120 ms ahead.
 - **Don't go back to a single fixed BPM grid as the default.** Detected tempos are never exact, and a 0.5 BPM error is already about 1 s off after 3 minutes. Off-the-shelf BPM detectors also return integer tempos, and `web-audio-beat-detector` failed outright on the sample song, which left the click at 120 BPM.
 - **Beat tracking** reuses the decoded drums buffer, so nothing is downloaded again. It runs in a worker and the result is cached in localStorage as `mosaic:beats:v2:<slug>`. **Bump the version in the key** whenever `beats.ts` changes. Frame times must use the exact `fps = sampleRate / hop`, never the nominal 100, because a rounded hop stretches the timeline.
+- **Chords** are recognised once per song, after the beats are known (tracked beats, the `songs.json` tempo, or the metronome grid if tracking failed), from the already-decoded stems (`Engine.chordBuffers`: everything but drums and vocals, plus the bass stem for roots). Nothing is fetched again. The result is cached in localStorage as `mosaic:chords:v1:<slug>`. **Bump the version in the key** whenever `chords.ts` changes. Later metronome edits don't move the chords.
 - `window.__mosaicEngine` is a test hook (Playwright reads `state`, `position` and `syncReport()`). Keep those names stable or update `tests/helpers.ts`.
 - Always `dispose()` the engine when unmounting. It stops the sources, drops the buffers and closes the AudioContext.
 
@@ -92,7 +99,8 @@ design/                     Local Moises reference screenshots (git-ignored)
 
 - The look must match Moises (reference: `design/` screenshots, which are local only). Use the tokens in `tokens.css`, not new raw colours.
 - Mobile-first column (`--column: 520px`) with a vertical gradient background, white content and grey secondary text. Stem rows show only an icon, a thin white slider and a ⋮ menu, with no names. Behind the slider sits a faint, smooth, filled whole-song waveform (`StemWave`; the song ⋮ menu can hide it, remembered per viewer in localStorage as `mosaic:waveforms`): brighter where already played (clipped to `--progress` on `.stems`, so playback never redraws the canvas), scaled with the volume and dimmed when muted. It's `pointer-events: none`; the slider keeps all input. Peaks are computed once from the already-decoded buffer (`Engine.peaksFor`), never by fetching or decoding again.
-- Features deliberately left out: chord strip, lyrics, sections, A‑B loop, isolate chips. Don't add dead placeholder buttons for them.
+- **Chord strip** sits on top of the stems: a fixed key badge (tapping opens Pitch & speed) and chords scrolling right to left under a fixed playhead, driven by the same `scrub ?? position` as the waveforms (only the track's `transform` changes per frame). Tapping it opens `ChordSheet` (guitar/piano diagrams, remembered as `mosaic:chord-instrument`). Chord and key names follow the pitch control and are spelled with ♯ or ♭ to match the transposed key. The key is shown once per place: the strip badge, and the subtitle of the existing Key row in Pitch & speed (`Am → Bm` when transposed). The song ⋮ menu can hide the strip (`mosaic:chords`).
+- Features deliberately left out: lyrics, sections, A‑B loop, isolate chips. Don't add dead placeholder buttons for them.
 - **Dev server honours HTTP Range** (`library-plugin.ts` middleware returns 206). Keep it: browsers and range-based fetches depend on it.
 - `Slider` is driven by native `input`/`change` listeners and only writes `value` to the element while not dragging. Don't turn it back into a controlled React range input: the seek bar's value changes every frame and fights the drag.
 - Tapping a stem icon toggles mute; holding it for 500 ms calls `toggleSolo` (as in Moises), and the click that ends the hold is swallowed. The ⋮ menu keeps Solo / Unmute all too.

@@ -1,6 +1,7 @@
 import { SoundTouchNode } from '@soundtouchjs/audio-worklet';
 import processorUrl from '@soundtouchjs/audio-worklet/processor?url';
 import type { SongSource, StemSource } from '../lib/types';
+import type { ChordBuffers } from './chordDetect';
 import { Metronome, firstBeatAtOrAfter, type MetronomeSettings } from './metronome';
 import { enterPlaybackSession, leavePlaybackSession } from './audioSession';
 import { computePeaks } from './peaks';
@@ -480,6 +481,22 @@ export class Engine {
   tempoBuffer(): AudioBuffer | null {
     const idx = this.state.stems.findIndex((s) => /drum|perc|beat/i.test(s.name));
     return this.tracks[idx >= 0 ? idx : 0]?.buffer ?? null;
+  }
+
+  /**
+   * Decoded audio used for chord detection: the pitched stems (no drums or vocals; everything but
+   * the drums when that leaves nothing), and the bass stem on its own for the roots.
+   */
+  chordBuffers(): ChordBuffers {
+    const named = this.state.stems.map((s, i) => ({ name: s.name, buffer: this.tracks[i]?.buffer })).filter((s) => !!s.buffer);
+    const drums = /drum|perc|beat/i;
+    let harmonic = named.filter((s) => !drums.test(s.name) && !/vocal|voice|vox/i.test(s.name));
+    if (!harmonic.length) harmonic = named.filter((s) => !drums.test(s.name));
+    if (!harmonic.length) harmonic = named;
+    return {
+      harmonic: harmonic.map((s) => s.buffer!),
+      bass: named.find((s) => /bass/i.test(s.name))?.buffer ?? null,
+    };
   }
 
   dispose() {

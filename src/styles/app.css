@@ -441,6 +441,108 @@ button:disabled {
   }
 }
 
+/* chord strip on top of the stems: fixed key badge + chords scrolling under a fixed playhead */
+.chords {
+  flex-shrink: 0;
+  display: flex;
+  height: 56px;
+  margin: 8px 16px 0;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.chords__key {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 60px;
+  padding: 0 10px;
+  border-right: 1px solid var(--border-subtle);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.chords__key small {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.chords__view {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  /* Fade the chords out at both edges. */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+
+.chords__view:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.chords__status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.chords__track {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 35%;
+  will-change: transform;
+}
+
+.chords__chip {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-left: 1px solid var(--border-subtle);
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-muted);
+  transition: color 0.15s;
+}
+
+.chords__chip--active {
+  color: var(--text);
+}
+
+.chords__playhead {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 35%;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--text);
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chords__chip {
+    transition: none;
+  }
+}
+
 .stems {
   flex: 1;
   display: flex;
@@ -792,6 +894,115 @@ button:disabled {
   background: transparent;
   color: var(--text);
   border: 1.5px solid var(--border);
+}
+
+/* chord sheet */
+.chord-now {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0 14px;
+}
+
+.chord-now__name {
+  font-size: 34px;
+  font-weight: 700;
+}
+
+.chord-now__next {
+  font-size: 15px;
+  color: var(--text-secondary);
+}
+
+.segmented {
+  display: flex;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+}
+
+.segmented__btn {
+  flex: 1;
+  min-height: 44px;
+  border-radius: var(--radius-pill);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.segmented__btn--on {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.chord-diagram {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+  padding: 16px 0 4px;
+}
+
+.guitar {
+  width: 190px;
+}
+
+.guitar__fret,
+.guitar__string {
+  stroke: var(--track);
+  stroke-width: 1.5;
+}
+
+.guitar__nut {
+  stroke: var(--text);
+  stroke-width: 4;
+}
+
+.guitar__dot,
+.guitar__barre {
+  fill: var(--text);
+}
+
+.guitar__dot.is-root {
+  fill: var(--heart);
+}
+
+.guitar__open {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1.5;
+}
+
+.guitar__mark,
+.guitar__base {
+  fill: var(--text-secondary);
+  font-size: 13px;
+  text-anchor: middle;
+}
+
+.guitar__base {
+  text-anchor: start;
+}
+
+.piano {
+  width: 100%;
+  max-width: 360px;
+}
+
+.piano__white {
+  fill: var(--text);
+  stroke: var(--bg-top);
+  stroke-width: 1;
+}
+
+.piano__black {
+  fill: var(--bg-top);
+}
+
+.piano__white.is-on,
+.piano__black.is-on {
+  fill: var(--heart);
 }
 
 @keyframes slide-up {

@@ -6,8 +6,11 @@ import { shareSong } from '../../lib/share';
 import { stemMeta } from '../../lib/stemMeta';
 import { toast } from '../../lib/toast';
 import type { SongSource } from '../../lib/types';
+import { keyName } from '../../lib/chords';
 import { Footer } from '../Footer';
 import { ChevronDownIcon, MoreVerticalIcon, ShareIcon } from '../icons';
+import { ChordSheet } from './ChordSheet';
+import { ChordStrip } from './ChordStrip';
 import { LoadingModal } from './LoadingModal';
 import { MetronomeSheet } from './MetronomeSheet';
 import { PitchSpeedSheet } from './PitchSpeedSheet';
@@ -15,8 +18,9 @@ import { SeekBar } from './SeekBar';
 import { MenuItem, Sheet } from './Sheet';
 import { StemRow } from './StemRow';
 import { Transport } from './Transport';
+import { useChords, type ChordsState } from './useChords';
 
-type Panel = null | 'metronome' | 'pitch' | 'menu' | { stem: number };
+type Panel = null | 'metronome' | 'pitch' | 'menu' | 'chords' | { stem: number };
 
 /** Bump the version when the beat tracker changes so stale results aren't reused. */
 const beatsKey = (id: string) => `mosaic:beats:v2:${id}`;
@@ -69,6 +73,34 @@ function writeShowWaves(show: boolean) {
   }
 }
 
+/** Per-viewer preference: chord strip on top of the stems (on unless switched off). */
+const CHORDS_KEY = 'mosaic:chords';
+
+function readShowChords(): boolean {
+  try {
+    return localStorage.getItem(CHORDS_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+}
+
+function writeShowChords(show: boolean) {
+  try {
+    if (show) localStorage.removeItem(CHORDS_KEY);
+    else localStorage.setItem(CHORDS_KEY, 'off');
+  } catch {
+    // storage unavailable — the choice lasts for this session only
+  }
+}
+
+/** Subtitle of the Key row in Pitch & speed: the original key, and where the pitch takes it. */
+function keyLabel({ status, analysis }: ChordsState, pitch: number): string {
+  if (status === 'analysing') return 'Detecting key…';
+  const key = analysis?.key;
+  if (!key) return 'semitones';
+  return pitch ? `${keyName(key)} → ${keyName(key, pitch)}` : keyName(key);
+}
+
 export function Player({ song, onClose }: { song: SongSource; onClose: () => void }) {
   const [engine, setEngine] = useState<Engine | null>(null);
 
@@ -89,6 +121,7 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
   const position = usePosition(engine, state.playing);
   const [panel, setPanel] = useState<Panel>(null);
   const [showWaves, setShowWaves] = useState(readShowWaves);
+  const [showChords, setShowChords] = useState(readShowChords);
   // While the seek bar is dragged, the waveform highlight follows the drag, not the playhead.
   const [scrub, setScrub] = useState<number | null>(null);
   const shown = scrub ?? position;
@@ -116,6 +149,9 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
     if (cached?.beats?.length) engine.setMetronome({ ...cached, offset: 0 });
     else void runDetection();
   }, [state.status]);
+
+  // After the beats effect above, so it sees beats it just set or a detection it just started.
+  const chords = useChords(engine, song, state);
 
   // Keyboard shortcuts.
   useEffect(() => {
@@ -160,6 +196,10 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
         </div>
       )}
 
+      {showChords && (
+        <ChordStrip chords={chords} position={shown} pitch={state.pitch} onOpen={() => setPanel('chords')} onKey={() => setPanel('pitch')} />
+      )}
+
       <div className="stems" style={{ '--progress': `${state.duration ? (shown / state.duration) * 100 : 0}%` } as CSSProperties}>
         {state.stems.map((_, i) => (
           <StemRow key={i} engine={engine} stems={state.stems} index={i} showWave={showWaves} onMenu={() => setPanel({ stem: i })} />
@@ -173,7 +213,10 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
       </div>
 
       {panel === 'metronome' && <MetronomeSheet engine={engine} state={state} onClose={closePanel} onDetect={runDetection} />}
-      {panel === 'pitch' && <PitchSpeedSheet engine={engine} state={state} onClose={closePanel} />}
+      {panel === 'pitch' && <PitchSpeedSheet engine={engine} state={state} keyLabel={keyLabel(chords, state.pitch)} onClose={closePanel} />}
+      {panel === 'chords' && chords.analysis && (
+        <ChordSheet analysis={chords.analysis} position={shown} pitch={state.pitch} onClose={closePanel} />
+      )}
       {panel === 'menu' && (
         <Sheet title={song.name} onClose={closePanel}>
           {song.shareable && (
@@ -194,6 +237,15 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
             }}
           >
             {showWaves ? 'Hide waveforms' : 'Show waveforms'}
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              writeShowChords(!showChords);
+              setShowChords(!showChords);
+              closePanel();
+            }}
+          >
+            {showChords ? 'Hide chords' : 'Show chords'}
           </MenuItem>
           <MenuItem
             onClick={() => {
