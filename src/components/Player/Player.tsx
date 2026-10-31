@@ -3,6 +3,7 @@ import { detectBeats } from '../../audio/bpm';
 import { beatGrid } from '../../audio/chords';
 import { Engine } from '../../audio/Engine';
 import { useEngineState, usePosition } from '../../audio/hooks';
+import { clearAnalyses, isNumber, isNumberArray, readAnalysis, writeAnalysis } from '../../lib/analysisCache';
 import { shareSong } from '../../lib/share';
 import { stemMeta } from '../../lib/stemMeta';
 import { toast } from '../../lib/toast';
@@ -28,13 +29,15 @@ import { useDrums } from './useDrums';
 
 type Panel = null | 'metronome' | 'pitch' | 'menu' | 'chords' | 'drums' | { stem: number };
 
-/** Bump the version when the beat tracker changes so stale results aren't reused. */
-const beatsKey = (id: string) => `mosaic:beats:v2:${id}`;
-
 interface CachedBeats {
   bpm: number;
   beats: number[];
   downbeat: number;
+}
+
+function isCachedBeats(value: unknown): value is CachedBeats {
+  const b = value as Partial<CachedBeats> | null;
+  return !!b && isNumber(b.bpm) && isNumberArray(b.beats) && b.beats.length > 0 && Number.isInteger(b.downbeat);
 }
 
 function readCachedBeats(id: string): CachedBeats | null {
@@ -42,21 +45,16 @@ function readCachedBeats(id: string): CachedBeats | null {
     // Caches from before the rename to Mosaic (the old fixed-grid one could be badly off).
     localStorage.removeItem(`moise:bpm:${id}`);
     localStorage.removeItem(`moise:beats:v2:${id}`);
-    const raw = localStorage.getItem(beatsKey(id));
-    return raw ? JSON.parse(raw) : null;
   } catch {
-    return null;
+    // storage unavailable
   }
+  return readAnalysis('beats', id, isCachedBeats);
 }
 
 function writeCachedBeats(id: string, value: CachedBeats) {
-  try {
-    // Millisecond precision is plenty and keeps the entry small.
-    const beats = value.beats.map((b) => Math.round(b * 1000) / 1000);
-    localStorage.setItem(beatsKey(id), JSON.stringify({ ...value, beats }));
-  } catch {
-    // storage unavailable — detection just runs again next time
-  }
+  // Millisecond precision is plenty and keeps the entry small.
+  const beats = value.beats.map((b) => Math.round(b * 1000) / 1000);
+  writeAnalysis('beats', id, { ...value, beats });
 }
 
 /** Per-viewer preference: waveforms behind the stem sliders (on unless switched off). */
@@ -151,6 +149,8 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
   const [showDrums, setShowDrums] = useState(readShowDrums);
   // While the seek bar is dragged, the waveform highlight follows the drag, not the playhead.
   const [scrub, setScrub] = useState<number | null>(null);
+  // Bumped by Re-analyse song: the chords and drums start a new job.
+  const [run, setRun] = useState(0);
   const shown = scrub ?? position;
   const closePanel = useCallback(() => setPanel(null), []);
   // Docked in the sheets you read along with the music, so playback stays one tap away.
@@ -175,13 +175,21 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
   useEffect(() => {
     if (state.status !== 'ready' || song.bpm) return;
     const cached = song.shareable ? readCachedBeats(song.id) : null;
-    if (cached?.beats?.length) engine.setMetronome({ ...cached, offset: 0 });
+    if (cached) engine.setMetronome({ ...cached, offset: 0 });
     else void runDetection();
   }, [state.status]);
 
   // After the beats effect above, so it sees beats it just set or a detection it just started.
-  const chords = useChords(engine, song, state);
-  const drums = useDrums(engine, song, state);
+  const chords = useChords(engine, song, state, run);
+  const drums = useDrums(engine, song, state, run);
+
+  // Forget this song's cached beats, chords and drums and work them out again from the decoded stems.
+  const reanalyse = () => {
+    clearAnalyses(song.id);
+    // Starts the beat tracker first, so the new chord and drum jobs wait for its beats.
+    if (!song.bpm) void runDetection();
+    setRun((r) => r + 1);
+  };
   const seek = useCallback((t: number) => engine.seek(t), [engine]);
 
   // Bars for the chord chart: the drum transcription's (its meter and downbeat), else the metronome's beats in 4/4.
@@ -316,6 +324,16 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
           >
             Reset mix
           </MenuItem>
+          {song.shareable && (
+            <MenuItem
+              onClick={() => {
+                closePanel();
+                reanalyse();
+              }}
+            >
+              Re-analyse song
+            </MenuItem>
+          )}
           <MenuItem onClick={onClose}>Back to songs</MenuItem>
         </Sheet>
       )}

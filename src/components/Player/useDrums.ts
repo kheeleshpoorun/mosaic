@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { detectDrums } from '../../audio/drumDetect';
-import type { DrumAnalysis } from '../../audio/drums';
+import { LANES, type DrumAnalysis } from '../../audio/drums';
 import { beatGrid } from '../../audio/chords';
 import type { Engine, EngineState } from '../../audio/Engine';
+import { isNumber, isNumberArray, readAnalysis, writeAnalysis } from '../../lib/analysisCache';
 import { toast } from '../../lib/toast';
 import type { SongSource } from '../../lib/types';
 
@@ -12,24 +13,22 @@ export interface DrumsState {
   analysis: DrumAnalysis | null;
 }
 
-/** Bump the version when the drum recogniser changes so stale results aren't reused. */
-const drumsKey = (id: string) => `mosaic:drums:v1:${id}`;
-
-function readCachedDrums(id: string): DrumAnalysis | null {
-  try {
-    const raw = localStorage.getItem(drumsKey(id));
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedDrums(id: string, value: DrumAnalysis) {
-  try {
-    localStorage.setItem(drumsKey(id), JSON.stringify(value));
-  } catch {
-    // storage unavailable — detection just runs again next time
-  }
+/** A cached result the sheets can draw: every bar with one row of steps per lane. */
+function isDrumAnalysis(value: unknown): value is DrumAnalysis {
+  const a = value as Partial<DrumAnalysis> | null;
+  if (!a || (a.meter !== 3 && a.meter !== 4) || (a.division !== 3 && a.division !== 4) || !Array.isArray(a.bars)) return false;
+  const steps = a.meter * a.division;
+  return a.bars.every(
+    (b) =>
+      isNumber(b?.start) &&
+      isNumber(b.end) &&
+      isNumberArray(b.beats) &&
+      ['groove', 'fill', 'rest'].includes(b.kind) &&
+      isNumber(b.groove) &&
+      Array.isArray(b.steps) &&
+      b.steps.length === LANES.length &&
+      b.steps.every((lane) => isNumberArray(lane) && lane.length === steps),
+  );
 }
 
 /**
@@ -37,10 +36,12 @@ function writeCachedDrums(id: string, value: DrumAnalysis) {
  * songs.json tempo, or the metronome grid when tracking failed). Runs once per song; later
  * metronome changes don't move the bars.
  */
-export function useDrums(engine: Engine, song: SongSource, state: EngineState): DrumsState {
-  // Tagged with the engine it belongs to, so switching songs never shows the previous song's grooves.
-  const [drums, setDrums] = useState<DrumsState & { engine: Engine | null }>({ status: 'analysing', analysis: null, engine: null });
-  const started = useRef<Engine | null>(null);
+export function useDrums(engine: Engine, song: SongSource, state: EngineState, run: number): DrumsState {
+  // One job per engine and run (Re-analyse song starts a new one). Results are tagged with their job,
+  // so switching songs or re-analysing never shows an earlier job's grooves.
+  const job = useMemo(() => ({ engine, run }), [engine, run]);
+  const [drums, setDrums] = useState<DrumsState & { job: object | null }>({ status: 'analysing', analysis: null, job: null });
+  const started = useRef<object | null>(null);
   const alive = useRef(true);
   const { beats, detecting } = state.metronome;
 
@@ -54,17 +55,17 @@ export function useDrums(engine: Engine, song: SongSource, state: EngineState): 
   }, []);
 
   useEffect(() => {
-    if (started.current === engine || state.status !== 'ready') return;
+    if (started.current === job || state.status !== 'ready') return;
     const buffer = engine.drumBuffer();
     if (!buffer) {
-      started.current = engine;
-      setDrums({ status: 'none', analysis: null, engine });
+      started.current = job;
+      setDrums({ status: 'none', analysis: null, job });
       return;
     }
-    const cached = song.shareable ? readCachedDrums(song.id) : null;
-    if (cached?.bars) {
-      started.current = engine;
-      setDrums({ status: 'ready', analysis: cached, engine });
+    const cached = song.shareable ? readAnalysis('drums', song.id, isDrumAnalysis) : null;
+    if (cached) {
+      started.current = job;
+      setDrums({ status: 'ready', analysis: cached, job });
       return;
     }
     // Read the engine directly: the beats effect may have updated it in this same commit.
@@ -79,21 +80,21 @@ export function useDrums(engine: Engine, song: SongSource, state: EngineState): 
     } else if (m.detecting) return; // wait for the beat tracker
     else grid = beatGrid(m.bpm, m.offset, duration);
 
-    started.current = engine;
+    started.current = job;
     detectDrums(buffer, grid, downbeat, duration).then(
       (analysis) => {
-        if (!alive.current) return;
-        setDrums({ status: 'ready', analysis, engine });
-        if (song.shareable) writeCachedDrums(song.id, analysis);
+        if (!alive.current || started.current !== job) return;
+        setDrums({ status: 'ready', analysis, job });
+        if (song.shareable) writeAnalysis('drums', song.id, analysis);
       },
       (e) => {
-        if (!alive.current) return;
+        if (!alive.current || started.current !== job) return;
         console.warn('Drum detection failed', e);
-        setDrums({ status: 'error', analysis: null, engine });
+        setDrums({ status: 'error', analysis: null, job });
         toast("Couldn't detect the drum grooves");
       },
     );
-  }, [engine, song, state.status, beats, detecting]);
+  }, [job, engine, song, state.status, beats, detecting]);
 
-  return drums.engine === engine ? drums : { status: 'analysing', analysis: null };
+  return drums.job === job ? drums : { status: 'analysing', analysis: null };
 }

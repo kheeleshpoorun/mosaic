@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { detectChords } from '../../audio/chordDetect';
 import { beatGrid, type ChordAnalysis } from '../../audio/chords';
 import type { Engine, EngineState } from '../../audio/Engine';
+import { isNumber, readAnalysis, writeAnalysis } from '../../lib/analysisCache';
 import { toast } from '../../lib/toast';
 import type { SongSource } from '../../lib/types';
 
@@ -10,27 +11,25 @@ export interface ChordsState {
   analysis: ChordAnalysis | null;
 }
 
-/** Bump the version when the chord recogniser changes so stale results aren't reused. */
-const chordsKey = (id: string) => `mosaic:chords:v1:${id}`;
+const QUALITIES = ['maj', 'min', '7', 'maj7', 'm7', 'N'];
 
-function readCachedChords(id: string): ChordAnalysis | null {
-  try {
-    const raw = localStorage.getItem(chordsKey(id));
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
+/** A cached result the strip and sheet can draw. */
+function isChordAnalysis(value: unknown): value is ChordAnalysis {
+  const a = value as Partial<ChordAnalysis> | null;
+  const key = a?.key;
+  return (
+    !!a &&
+    Array.isArray(a.segments) &&
+    a.segments.every((s) => isNumber(s?.start) && isNumber(s.end) && Number.isInteger(s.root) && QUALITIES.includes(s.quality)) &&
+    (key === null || (!!key && Number.isInteger(key.tonic) && (key.mode === 'major' || key.mode === 'minor') && isNumber(key.confidence)))
+  );
 }
 
 function writeCachedChords(id: string, value: ChordAnalysis) {
-  try {
-    // Millisecond precision is plenty and keeps the entry small.
-    const ms = (t: number) => Math.round(t * 1000) / 1000;
-    const segments = value.segments.map((s) => ({ ...s, start: ms(s.start), end: ms(s.end) }));
-    localStorage.setItem(chordsKey(id), JSON.stringify({ ...value, segments }));
-  } catch {
-    // storage unavailable — detection just runs again next time
-  }
+  // Millisecond precision is plenty and keeps the entry small.
+  const ms = (t: number) => Math.round(t * 1000) / 1000;
+  const segments = value.segments.map((s) => ({ ...s, start: ms(s.start), end: ms(s.end) }));
+  writeAnalysis('chords', id, { ...value, segments });
 }
 
 /**
@@ -38,10 +37,12 @@ function writeCachedChords(id: string, value: ChordAnalysis) {
  * songs.json tempo, or the metronome grid when tracking failed). Runs once per song; later
  * metronome changes don't move the chords.
  */
-export function useChords(engine: Engine, song: SongSource, state: EngineState): ChordsState {
-  // Tagged with the engine it belongs to, so switching songs never shows the previous song's chords.
-  const [chords, setChords] = useState<ChordsState & { engine: Engine | null }>({ status: 'analysing', analysis: null, engine: null });
-  const started = useRef<Engine | null>(null);
+export function useChords(engine: Engine, song: SongSource, state: EngineState, run: number): ChordsState {
+  // One job per engine and run (Re-analyse song starts a new one). Results are tagged with their job,
+  // so switching songs or re-analysing never shows an earlier job's chords.
+  const job = useMemo(() => ({ engine, run }), [engine, run]);
+  const [chords, setChords] = useState<ChordsState & { job: object | null }>({ status: 'analysing', analysis: null, job: null });
+  const started = useRef<object | null>(null);
   const alive = useRef(true);
   const { beats, detecting } = state.metronome;
 
@@ -55,11 +56,11 @@ export function useChords(engine: Engine, song: SongSource, state: EngineState):
   }, []);
 
   useEffect(() => {
-    if (started.current === engine || state.status !== 'ready') return;
-    const cached = song.shareable ? readCachedChords(song.id) : null;
-    if (cached?.segments) {
-      started.current = engine;
-      setChords({ status: 'ready', analysis: cached, engine });
+    if (started.current === job || state.status !== 'ready') return;
+    const cached = song.shareable ? readAnalysis('chords', song.id, isChordAnalysis) : null;
+    if (cached) {
+      started.current = job;
+      setChords({ status: 'ready', analysis: cached, job });
       return;
     }
     // Read the engine directly: the beats effect may have updated it in this same commit.
@@ -71,21 +72,21 @@ export function useChords(engine: Engine, song: SongSource, state: EngineState):
     else if (m.detecting) return; // wait for the beat tracker
     else grid = beatGrid(m.bpm, m.offset, duration);
 
-    started.current = engine;
+    started.current = job;
     detectChords(engine.chordBuffers(), grid, duration).then(
       (analysis) => {
-        if (!alive.current) return;
-        setChords({ status: 'ready', analysis, engine });
+        if (!alive.current || started.current !== job) return;
+        setChords({ status: 'ready', analysis, job });
         if (song.shareable) writeCachedChords(song.id, analysis);
       },
       (e) => {
-        if (!alive.current) return;
+        if (!alive.current || started.current !== job) return;
         console.warn('Chord detection failed', e);
-        setChords({ status: 'error', analysis: null, engine });
+        setChords({ status: 'error', analysis: null, job });
         toast("Couldn't detect the chords");
       },
     );
-  }, [engine, song, state.status, beats, detecting]);
+  }, [job, engine, song, state.status, beats, detecting]);
 
-  return chords.engine === engine ? chords : { status: 'analysing', analysis: null };
+  return chords.job === job ? chords : { status: 'analysing', analysis: null };
 }

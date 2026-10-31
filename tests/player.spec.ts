@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { SONG_NAME, STEM_COUNT, clickSeek, elapsed, engineState, openSong, parseTime, syncReport } from './helpers';
+import { analyserVersions } from '../scripts/analyser-versions';
+import { SONG_NAME, SONG_SLUG, STEM_COUNT, clickSeek, elapsed, engineState, openSong, parseTime, syncReport } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await openSong(page);
@@ -485,6 +486,62 @@ test('drum strip reads like a chart under the chord strip, and follows the playh
   await clickSeek(page, 0.5);
   await expect.poll(shift).toBeLessThan(-1000);
   await expect(page.locator('.drums__chip--active')).toHaveCount(1);
+});
+
+test('a stale drum result in storage is analysed again instead of breaking the drum sheet', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const key = `mosaic:drums:${analyserVersions(process.cwd()).drums}:${SONG_SLUG}`;
+  const old = `mosaic:drums:v1:${SONG_SLUG}`;
+  // Under the current key but with fewer lanes (as a broken or hand-edited entry would be), plus a
+  // result from an older analyser under its old key.
+  await page.addInitScript(
+    ([key, old]) => {
+      if (sessionStorage.getItem('seeded')) return;
+      sessionStorage.setItem('seeded', '1');
+      const bar = { start: 0, end: 2, beats: [0, 0.5, 1, 1.5], kind: 'groove', groove: 0, repeat: false, steps: [[1, 0, 0, 0], [0, 0, 1, 0]] };
+      const stale = JSON.stringify({ bars: [bar], meter: 4, division: 4, swing: false });
+      localStorage.setItem(key, stale);
+      localStorage.setItem(old, stale);
+    },
+    [key, old],
+  );
+  await page.reload();
+  await expect.poll(() => page.locator('.drums__chip').count(), { timeout: 45_000 }).toBeGreaterThan(10);
+  await page.locator('.drums__view').click();
+  await expect(page.getByRole('dialog', { name: 'Drums' })).toBeVisible();
+  expect(errors).toEqual([]);
+
+  // The fresh result replaced the broken one, and the old analyser's entry is gone.
+  const stored = await page.evaluate(([key, old]) => [JSON.parse(localStorage.getItem(key)!).bars.length, localStorage.getItem(old)], [key, old]);
+  expect(stored[0]).toBeGreaterThan(10);
+  expect(stored[1]).toBeNull();
+});
+
+test('re-analyse song forgets the cached beats, chords and drums and works them out again', async ({ page }) => {
+  test.slow(); // every analysis runs twice
+  await expect.poll(() => page.locator('.drums__chip').count(), { timeout: 45_000 }).toBeGreaterThan(10);
+  await expect.poll(() => page.locator('.chords__chip').count(), { timeout: 45_000 }).toBeGreaterThan(10);
+  const cached = () =>
+    page.evaluate((slug) => Object.keys(localStorage).filter((k) => /^mosaic:(beats|chords|drums):/.test(k) && k.endsWith(`:${slug}`)).length, SONG_SLUG);
+  await expect.poll(cached).toBe(3);
+  // A marker on the cached drums: re-analysing must replace it.
+  await page.evaluate((slug) => {
+    const key = Object.keys(localStorage).find((k) => k.startsWith('mosaic:drums:') && k.endsWith(`:${slug}`))!;
+    localStorage.setItem(key, JSON.stringify({ ...JSON.parse(localStorage.getItem(key)!), marker: true }));
+  }, SONG_SLUG);
+
+  await page.getByRole('button', { name: 'More options' }).click();
+  await page.getByRole('button', { name: 'Re-analyse song' }).click();
+  await expect(page.locator('.drums__status')).toContainText('Analysing drums');
+  await expect.poll(() => page.locator('.drums__chip').count(), { timeout: 45_000 }).toBeGreaterThan(10);
+  await expect.poll(() => page.locator('.chords__chip').count(), { timeout: 45_000 }).toBeGreaterThan(10);
+  await expect.poll(cached).toBe(3);
+  const marker = await page.evaluate((slug) => {
+    const key = Object.keys(localStorage).find((k) => k.startsWith('mosaic:drums:') && k.endsWith(`:${slug}`))!;
+    return JSON.parse(localStorage.getItem(key)!).marker ?? null;
+  }, SONG_SLUG);
+  expect(marker).toBeNull();
 });
 
 test('the drum sheet shows this bar and the next, as a grid or as notation', async ({ page }) => {
