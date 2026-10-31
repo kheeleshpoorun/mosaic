@@ -51,13 +51,16 @@ export function sliderToGain(v: number): number {
 /**
  * Sample-accurate multitrack player. Every stem is decoded to an AudioBuffer and all
  * AudioBufferSourceNodes are started with the same `when` on the AudioContext clock, so stems
- * can't drift apart. Graph: source → gain → master → limiter → [SoundTouch] → destination.
+ * can't drift apart. Graph: source → gain → master → limiter → [SoundTouch] → output → destination;
+ * the metronome joins at `output`.
  */
 export class Engine {
   readonly ctx: AudioContext;
   private tracks: Track[];
   private master: GainNode;
   private limiter: DynamicsCompressorNode;
+  /** Final limiter on music + metronome. A loud click briefly ducks the mix instead of clipping. */
+  private output: DynamicsCompressorNode;
   private pitchNode: SoundTouchNode | null = null;
   private pitchReady: Promise<void>;
   private metronome: Metronome;
@@ -80,9 +83,16 @@ export class Engine {
     this.limiter.ratio.value = 20;
     this.limiter.attack.value = 0.003;
     this.limiter.release.value = 0.1;
+    this.output = this.ctx.createDynamicsCompressor();
+    this.output.threshold.value = -1;
+    this.output.knee.value = 0;
+    this.output.ratio.value = 20;
+    this.output.attack.value = 0.001;
+    this.output.release.value = 0.05;
+    this.output.connect(this.ctx.destination);
     this.master.connect(this.limiter);
-    this.limiter.connect(this.ctx.destination);
-    this.metronome = new Metronome(this.ctx);
+    this.limiter.connect(this.output);
+    this.metronome = new Metronome(this.ctx, this.output);
 
     this.tracks = song.stems.map(() => {
       const gain = this.ctx.createGain();
@@ -356,10 +366,10 @@ export class Engine {
     // Bypass SoundTouch when it has nothing to do, for the cleanest sound.
     this.limiter.disconnect();
     node.disconnect();
-    if (speed === 1 && pitch === 0) this.limiter.connect(this.ctx.destination);
+    if (speed === 1 && pitch === 0) this.limiter.connect(this.output);
     else {
       this.limiter.connect(node);
-      node.connect(this.ctx.destination);
+      node.connect(this.output);
     }
   }
 
