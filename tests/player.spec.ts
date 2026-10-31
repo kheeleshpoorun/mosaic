@@ -423,3 +423,49 @@ test('drums can be hidden from the song menu, and the choice sticks', async ({ p
   await page.getByRole('button', { name: 'Show drums' }).click();
   await expect(page.locator('.drums')).toBeVisible();
 });
+
+test('the drum sheet docks a mini player to pause, play and seek without closing it', async ({ page }) => {
+  await expect.poll(() => page.locator('.drums__chip').count(), { timeout: 45_000 }).toBeGreaterThan(10);
+  await page.getByRole('button', { name: /^Drum part/ }).click();
+  const sheet = page.getByRole('dialog', { name: 'Drums' });
+  const mini = sheet.locator('.mini-player');
+  await expect(mini).toBeVisible();
+
+  await mini.getByRole('button', { name: 'Play' }).click();
+  await expect.poll(async () => (await engineState(page)).playing).toBe(true);
+  await mini.getByRole('button', { name: 'Pause' }).click();
+  await expect.poll(async () => (await engineState(page)).playing).toBe(false);
+
+  const heading = await sheet.locator('.chord-now__name').textContent();
+  const box = (await mini.locator('.slider').boundingBox())!;
+  await page.mouse.click(box.x + box.width * 0.5, box.y + box.height / 2);
+  const { duration, position } = await engineState(page);
+  expect(position / duration).toBeGreaterThan(0.4);
+  expect(position / duration).toBeLessThan(0.6);
+  await expect(sheet).toBeVisible();
+  await expect(sheet.locator('.chord-now__name')).not.toHaveText(heading!);
+  await expect(mini.locator('.mini-player__time').first()).toHaveText(await elapsed(page).textContent() as string);
+
+  // It stays pinned while the sheet's content scrolls.
+  await sheet.locator('.sheet__body').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  await expect(mini).toBeInViewport();
+});
+
+test('the chord, metronome and pitch sheets have the mini player; menus do not', async ({ page }) => {
+  await expect.poll(() => page.locator('.chords__chip').count(), { timeout: 45_000 }).toBeGreaterThan(10);
+  await page.getByRole('button', { name: /^Chord diagrams/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Chords' }).locator('.mini-player')).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await page.locator('.transport').getByRole('button', { name: 'Metronome' }).click();
+  await expect(page.getByRole('dialog', { name: 'Metronome' }).locator('.mini-player')).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: 'Pitch and speed' }).click();
+  await expect(page.getByRole('dialog', { name: 'Pitch & speed' }).locator('.mini-player')).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: 'More options' }).click();
+  await expect(page.getByRole('dialog', { name: SONG_NAME })).toBeVisible();
+  await expect(page.locator('.mini-player')).toHaveCount(0);
+});

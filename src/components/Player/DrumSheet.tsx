@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { CYMBALS, LANES, isGhost, roadMap, usedLanes, type DrumAnalysis, type DrumBar } from '../../audio/drums';
 import { RepeatBarIcon } from '../icons';
 import { DrumNotation } from './DrumNotation';
@@ -33,6 +33,8 @@ interface Props {
   analysis: DrumAnalysis;
   position: number;
   onSeek: (time: number) => void;
+  /** Mini player pinned under the sheet. */
+  dock?: ReactNode;
   onClose: () => void;
 }
 
@@ -49,7 +51,7 @@ function stepAt(bar: DrumBar, t: number, division: number): number {
  * Reading view of the drum part: the bar playing now (with a moving step cursor) and the one coming
  * next, as a step grid or as notation, then the song map (grooves ×bars, fills) to jump around.
  */
-export function DrumSheet({ analysis, position, onSeek, onClose }: Props) {
+export function DrumSheet({ analysis, position, onSeek, onClose, dock }: Props) {
   const [view, setView] = useState(readView);
   const { bars, meter, division, swing } = analysis;
   const starts = useStarts(bars);
@@ -68,7 +70,7 @@ export function DrumSheet({ analysis, position, onSeek, onClose }: Props) {
   };
 
   return (
-    <Sheet title="Drums" onClose={onClose}>
+    <Sheet title="Drums" onClose={onClose} dock={dock}>
       <div className="chord-now">
         <span className="chord-now__name">{now ? `Bar ${nowIndex + 1}` : 'No drums'}</span>
         <span className="chord-now__next drum-feel">

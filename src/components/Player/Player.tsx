@@ -14,6 +14,7 @@ import { ChordStrip } from './ChordStrip';
 import { DrumSheet } from './DrumSheet';
 import { DrumStrip } from './DrumStrip';
 import { LoadingModal } from './LoadingModal';
+import { MiniPlayer } from './MiniPlayer';
 import { MetronomeSheet } from './MetronomeSheet';
 import { PitchSpeedSheet } from './PitchSpeedSheet';
 import { SeekBar } from './SeekBar';
@@ -150,6 +151,8 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
   const [scrub, setScrub] = useState<number | null>(null);
   const shown = scrub ?? position;
   const closePanel = useCallback(() => setPanel(null), []);
+  // Docked in the sheets you read along with the music, so playback stays one tap away.
+  const dock = <MiniPlayer engine={engine} state={state} position={position} scrub={scrub} onScrub={setScrub} />;
 
   const runDetection = useCallback(async () => {
     engine.setMetronome({ detecting: true });
@@ -240,12 +243,12 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
         <Footer />
       </div>
 
-      {panel === 'metronome' && <MetronomeSheet engine={engine} state={state} onClose={closePanel} onDetect={runDetection} />}
-      {panel === 'pitch' && <PitchSpeedSheet engine={engine} state={state} keyLabel={keyLabel(chords, state.pitch)} onClose={closePanel} />}
+      {panel === 'metronome' && <MetronomeSheet engine={engine} state={state} onClose={closePanel} onDetect={runDetection} dock={dock} />}
+      {panel === 'pitch' && <PitchSpeedSheet engine={engine} state={state} keyLabel={keyLabel(chords, state.pitch)} onClose={closePanel} dock={dock} />}
       {panel === 'chords' && chords.analysis && (
-        <ChordSheet analysis={chords.analysis} position={shown} pitch={state.pitch} onClose={closePanel} />
+        <ChordSheet analysis={chords.analysis} position={shown} pitch={state.pitch} onClose={closePanel} dock={dock} />
       )}
-      {panel === 'drums' && drums.analysis && <DrumSheet analysis={drums.analysis} position={shown} onSeek={(t) => engine.seek(t)} onClose={closePanel} />}
+      {panel === 'drums' && drums.analysis && <DrumSheet analysis={drums.analysis} position={shown} onSeek={(t) => engine.seek(t)} onClose={closePanel} dock={dock} />}
       {panel === 'menu' && (
         <Sheet title={song.name} onClose={closePanel}>
           {song.shareable && (

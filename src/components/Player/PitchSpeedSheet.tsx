@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { Engine, EngineState } from '../../audio/Engine';
 import { Sheet, Stepper } from './Sheet';
 import { Slider } from './Slider';
@@ -7,13 +8,15 @@ interface Props {
   state: EngineState;
   /** Detected key, e.g. "Am" or "Am → Bm" when transposed ("semitones" when unknown). */
   keyLabel: string;
+  /** Mini player pinned under the sheet. */
+  dock?: ReactNode;
   onClose: () => void;
 }
 
-export function PitchSpeedSheet({ engine, state, keyLabel, onClose }: Props) {
+export function PitchSpeedSheet({ engine, state, keyLabel, onClose, dock }: Props) {
   const { pitch, speed } = state;
   return (
-    <Sheet title="Pitch & speed" onClose={onClose}>
+    <Sheet title="Pitch & speed" onClose={onClose} dock={dock}>
       <div className="sheet-row">
         <span>
           Key

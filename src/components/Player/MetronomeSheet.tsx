@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, type ReactNode } from 'react';
 import type { Engine, EngineState } from '../../audio/Engine';
 import { Sheet, Stepper } from './Sheet';
 import { Slider } from './Slider';
@@ -6,11 +6,13 @@ import { Slider } from './Slider';
 interface Props {
   engine: Engine;
   state: EngineState;
+  /** Mini player pinned under the sheet. */
+  dock?: ReactNode;
   onClose: () => void;
   onDetect: () => void;
 }
 
-export function MetronomeSheet({ engine, state, onClose, onDetect }: Props) {
+export function MetronomeSheet({ engine, state, onClose, onDetect, dock }: Props) {
   const m = state.metronome;
   const taps = useRef<number[]>([]);
 
@@ -27,7 +29,7 @@ export function MetronomeSheet({ engine, state, onClose, onDetect }: Props) {
   const offsetMs = Math.round(m.offset * 1000);
 
   return (
-    <Sheet title="Metronome" onClose={onClose}>
+    <Sheet title="Metronome" onClose={onClose} dock={dock}>
       <div className="sheet-row">
         <span>Click</span>
         <button

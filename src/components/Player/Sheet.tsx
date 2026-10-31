@@ -4,10 +4,12 @@ interface Props {
   title?: string;
   onClose: () => void;
   children: ReactNode;
+  /** Pinned under the scrolling content (e.g. the mini player), so it never scrolls away. */
+  dock?: ReactNode;
 }
 
 /** Moises-style bottom sheet. */
-export function Sheet({ title, onClose, children }: Props) {
+export function Sheet({ title, onClose, children, dock }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
@@ -16,10 +18,13 @@ export function Sheet({ title, onClose, children }: Props) {
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet" role="dialog" aria-label={title} onClick={(e) => e.stopPropagation()}>
-        <div className="sheet__grabber" />
-        {title && <h3 className="sheet__title">{title}</h3>}
-        {children}
+      <div className={`sheet ${dock ? 'sheet--docked' : ''}`} role="dialog" aria-label={title} onClick={(e) => e.stopPropagation()}>
+        <div className="sheet__body">
+          <div className="sheet__grabber" />
+          {title && <h3 className="sheet__title">{title}</h3>}
+          {children}
+        </div>
+        {dock && <div className="sheet__dock">{dock}</div>}
       </div>
     </div>
   );

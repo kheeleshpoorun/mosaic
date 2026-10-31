@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { Chord, ChordAnalysis } from '../../audio/chords';
 import { chordName, chordTones, guitarShape, transposeChord } from '../../lib/chords';
 import { segmentAt, useStarts } from './timeline';
@@ -29,11 +29,13 @@ interface Props {
   analysis: ChordAnalysis;
   position: number;
   pitch: number;
+  /** Mini player pinned under the sheet. */
+  dock?: ReactNode;
   onClose: () => void;
 }
 
 /** Diagram of the chord playing now (it follows playback), and the one coming next. */
-export function ChordSheet({ analysis, position, pitch, onClose }: Props) {
+export function ChordSheet({ analysis, position, pitch, onClose, dock }: Props) {
   const [instrument, setInstrument] = useState(readInstrument);
   const starts = useStarts(analysis.segments);
   const { segments, key } = analysis;
@@ -49,7 +51,7 @@ export function ChordSheet({ analysis, position, pitch, onClose }: Props) {
   };
 
   return (
-    <Sheet title="Chords" onClose={onClose}>
+    <Sheet title="Chords" onClose={onClose} dock={dock}>
       <div className="chord-now">
         <span className="chord-now__name">{shown ? chordName(shown, pitch, key) : 'N.C.'}</span>
         {now && next && <span className="chord-now__next">Next {chordName(next, pitch, key)}</span>}
