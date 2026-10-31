@@ -27,6 +27,15 @@ test('play advances time and pause stops it', async ({ page }) => {
   expect((await engineState(page)).position).toBeCloseTo(paused, 2);
 });
 
+test('play switches the iOS audio session to playback so the silent switch does not mute it', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'audioSession', { value: { type: 'auto' }, configurable: true });
+  });
+  await openSong(page);
+  await page.locator('.transport__play').click();
+  await expect.poll(() => page.evaluate(() => (navigator as unknown as { audioSession: { type: string } }).audioSession.type)).toBe('playback');
+});
+
 test('all stems start together and share one playback rate', async ({ page }) => {
   await page.locator('.transport__play').click();
   await clickSeek(page, 0.4);

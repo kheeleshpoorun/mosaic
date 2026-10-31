@@ -2,6 +2,7 @@ import { SoundTouchNode } from '@soundtouchjs/audio-worklet';
 import processorUrl from '@soundtouchjs/audio-worklet/processor?url';
 import type { SongSource, StemSource } from '../lib/types';
 import { Metronome, firstBeatAtOrAfter, type MetronomeSettings } from './metronome';
+import { enterPlaybackSession, leavePlaybackSession } from './audioSession';
 import { computePeaks } from './peaks';
 
 /** Slider position that equals unity gain (Moises shows the thumb at ~75% by default). */
@@ -184,6 +185,8 @@ export class Engine {
 
   async play() {
     if (this.state.status !== 'ready' || this.state.playing) return;
+    // Before the first await, so it still runs inside the tap (iOS silent switch).
+    enterPlaybackSession();
     await this.ctx.resume();
     if (this.offset >= this.state.duration - 0.05) this.offset = 0;
     this.startSources(this.offset);
@@ -196,6 +199,7 @@ export class Engine {
     this.offset = this.position;
     this.stopSources();
     this.metronome.stop();
+    leavePlaybackSession();
     this.set({ playing: false });
   }
 
@@ -254,6 +258,7 @@ export class Engine {
       this.stopSources();
       this.metronome.stop();
       this.offset = this.state.duration;
+      leavePlaybackSession();
       this.set({ playing: false });
       return;
     }
@@ -426,6 +431,7 @@ export class Engine {
     window.clearInterval(this.timer);
     this.metronome.stop();
     this.stopSources();
+    leavePlaybackSession();
     this.tracks.forEach((t) => {
       t.buffer = null;
       t.peaks = null;
