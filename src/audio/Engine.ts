@@ -1,5 +1,6 @@
 import { SoundTouchNode } from '@soundtouchjs/audio-worklet';
 import processorUrl from '@soundtouchjs/audio-worklet/processor?url';
+import { readCachedStem, type ByteProgress } from '../lib/stemCache';
 import type { SongSource, StemSource } from '../lib/types';
 import type { ChordBuffers } from './chordDetect';
 import { Metronome, firstBeatAtOrAfter, type MetronomeSettings } from './metronome';
@@ -12,8 +13,10 @@ export const DEFAULT_VOLUME = 0.75;
 const TICK_MS = 25;
 /** Sources are scheduled this far in the future so every stem starts on the same audio frame. */
 const START_DELAY = 0.05;
-/** Stems decoded in parallel (bounds peak memory: compressed + decoded data). */
+/** Stems decoded in parallel (bounds peak memory: decoded data). Fetching isn't limited. */
 const DECODE_CONCURRENCY = 2;
+/** Byte progress reaches the store at most this often while stems download. */
+const BYTES_REPORT_MS = 100;
 
 export interface StemState {
   name: string;
@@ -28,6 +31,9 @@ export interface EngineState {
   status: 'loading' | 'ready' | 'error';
   loaded: number; // stems decoded
   loadPhases: StemLoadPhase[]; // per stem, same order as `stems`
+  /** Bytes of the stems read so far / in all (total grows as each stem's size becomes known). */
+  bytesLoaded: number;
+  bytesTotal: number;
   error?: string;
   playing: boolean;
   duration: number;
@@ -72,6 +78,8 @@ export class Engine {
   private timer: number | undefined;
   private listeners = new Set<() => void>();
   private disposed = false;
+  /** Cancels stem downloads when the player closes. */
+  private abort = new AbortController();
   /** Playback anchor: track time `anchorOffset` plays at AudioContext time `anchorTime`. */
   private anchorTime = 0;
   private anchorOffset = 0;
@@ -109,6 +117,8 @@ export class Engine {
       status: 'loading',
       loaded: 0,
       loadPhases: song.stems.map(() => 'queued'),
+      bytesLoaded: 0,
+      bytesTotal: 0,
       playing: false,
       duration: 0,
       stems: song.stems.map((s) => ({ name: s.name, volume: DEFAULT_VOLUME, muted: false })),
@@ -149,6 +159,29 @@ export class Engine {
 
   // ---------- loading ----------
   private async load(song: SongSource) {
+    // Every stem downloads at once (a slow network is the bottleneck, and saved stems are instant);
+    // only decoding is limited, to cap memory.
+    const bytes = song.stems.map(() => ({ loaded: 0, total: 0 }));
+    let reported = 0;
+    const report = (force = false) => {
+      const now = performance.now();
+      if (this.disposed || (!force && now - reported < BYTES_REPORT_MS)) return;
+      reported = now;
+      this.set({ bytesLoaded: bytes.reduce((a, b) => a + b.loaded, 0), bytesTotal: bytes.reduce((a, b) => a + b.total, 0) });
+    };
+    this.set({ loadPhases: song.stems.map(() => 'fetching') });
+    const reads = song.stems.map((stem, i) =>
+      readStem(
+        stem,
+        (loaded, total) => {
+          bytes[i] = { loaded, total };
+          report();
+        },
+        this.abort.signal,
+      ).finally(() => report(true)),
+    );
+    reads.forEach((r) => r.catch(() => undefined)); // failures surface when the decoder awaits them
+
     let next = 0;
     let loaded = 0;
     const worker = async () => {
@@ -156,15 +189,14 @@ export class Engine {
         const i = next++;
         const stem = song.stems[i];
         try {
-          this.setLoadPhase(i, 'fetching');
-          const data = await readStem(stem);
+          const data = await reads[i];
           if (this.disposed) return;
           this.setLoadPhase(i, 'decoding');
           const buffer = await this.ctx.decodeAudioData(data);
           this.tracks[i].buffer = buffer;
           this.tracks[i].peaks = computePeaks(Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c)));
         } catch {
-          throw new Error(`Could not load "${stem.name}"`);
+          throw new Error(navigator.onLine ? `Could not load "${stem.name}"` : "You're offline and this song isn't saved on this device yet");
         }
         loaded += 1;
         if (!this.disposed) this.set({ loaded });
@@ -507,6 +539,7 @@ export class Engine {
 
   dispose() {
     this.disposed = true;
+    this.abort.abort();
     window.clearInterval(this.timer);
     this.metronome.stop();
     this.stopSources();
@@ -529,9 +562,12 @@ function createContext(): AudioContext {
   }
 }
 
-async function readStem(stem: StemSource): Promise<ArrayBuffer> {
-  if (stem.file) return stem.file.arrayBuffer();
-  const res = await fetch(stem.url!);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.arrayBuffer();
+/** Imported stems are read from the File; library stems come from the device cache or the network. */
+async function readStem(stem: StemSource, onProgress: ByteProgress, signal: AbortSignal): Promise<ArrayBuffer> {
+  if (stem.file) {
+    const data = await stem.file.arrayBuffer();
+    onProgress(data.byteLength, data.byteLength);
+    return data;
+  }
+  return readCachedStem(stem.url!, onProgress, signal);
 }

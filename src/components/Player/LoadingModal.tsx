@@ -28,6 +28,8 @@ const GENERIC_QUIPS = [
 
 const QUIP_MS = 2200;
 
+const mb = (bytes: number) => (bytes / 1e6).toFixed(1);
+
 export function LoadingModal({ songName, state }: { songName: string; state: EngineState }) {
   const total = state.stems.length;
   const active = state.stems
@@ -49,7 +51,10 @@ export function LoadingModal({ songName, state }: { songName: string; state: Eng
   // Stride through the list so consecutive quips don't come from the same instrument.
   const quip = quips[(tick * 5) % quips.length];
 
-  const progress = total ? state.loaded / total : 0;
+  // Half the bar is the download, half the decoding; saved songs jump straight to the decoding half.
+  const downloading = state.bytesTotal > 0 && state.bytesLoaded < state.bytesTotal;
+  const fetched = state.bytesTotal ? state.bytesLoaded / state.bytesTotal : 0;
+  const progress = total ? (fetched + state.loaded / total) / 2 : 0;
 
   return (
     <div className="modal-backdrop">
@@ -95,13 +100,15 @@ export function LoadingModal({ songName, state }: { songName: string; state: Eng
           className="loader__progress"
           role="progressbar"
           aria-valuemin={0}
-          aria-valuemax={total}
-          aria-valuenow={state.loaded}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(progress * 100)}
         >
           <div className="loader__progress-fill" style={{ transform: `scaleX(${progress})` }} />
         </div>
         <p className="loader__count">
-          {state.loaded} of {total} stems
+          {downloading
+            ? `Downloading ${mb(state.bytesLoaded)} of ${mb(state.bytesTotal)} MB`
+            : `${state.loaded} of ${total} stems`}
         </p>
       </div>
     </div>

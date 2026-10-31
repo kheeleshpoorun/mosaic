@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Plugin, ResolvedConfig } from 'vite';
@@ -49,7 +50,9 @@ export function libraryPlugin({ dir }: { dir: string }): Plugin {
       const { songName, stemName } = parseStemName(file);
       const slug = slugify(songName);
       if (!songs.has(slug)) songs.set(slug, { slug, name: songName, stems: [] });
-      songs.get(slug)!.stems.push({ name: stemName, file: `library/${encodeURIComponent(file)}` });
+      // ?v= is a content hash: the app's offline stem cache is keyed by URL, so a changed stem is refetched.
+      const v = createHash('sha1').update(fs.readFileSync(path.join(libDir, file))).digest('hex').slice(0, 8);
+      songs.get(slug)!.stems.push({ name: stemName, file: `library/${encodeURIComponent(file)}?v=${v}` });
     }
     for (const song of songs.values()) {
       const o = overrides[song.slug];

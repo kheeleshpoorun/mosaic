@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Home } from './components/Home/Home';
 import { Player } from './components/Player/Player';
 import { Toast } from './components/Toast';
+import { UpdateBanner } from './components/UpdateBanner';
 import { librarySongs } from './lib/library';
 import { toast } from './lib/toast';
 import type { SongSource } from './lib/types';
@@ -73,6 +74,7 @@ export default function App() {
         <Home library={librarySongs} imports={imports} onOpen={open} onImport={addImports} onRemoveImport={removeImport} />
       )}
       <Toast />
+      <UpdateBanner />
     </>
   );
 }

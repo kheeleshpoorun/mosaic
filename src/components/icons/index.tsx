@@ -196,6 +196,22 @@ export const UploadIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const DownloadIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 3.5V15" />
+    <path d="m7 10 5 5 5-5" />
+    <path d="M4 14.5v3.5A2.5 2.5 0 0 0 6.5 20.5h11a2.5 2.5 0 0 0 2.5-2.5v-3.5" />
+  </Svg>
+);
+
+/** Saved on the device (offline). */
+export const SavedIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="m8.3 12.2 2.5 2.5 5-5.2" />
+  </Svg>
+);
+
 export const MinusIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M5 12h14" strokeWidth={1.8} />

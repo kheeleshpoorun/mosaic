@@ -6,7 +6,7 @@ Guidance for AI coding agents and contributors working on this repo.
 
 Mosaic is a static single-page app that copies the **Moises mobile mixer**. It plays song stems with per-stem mute, solo and volume, a metronome, pitch and speed controls, and a chord strip with the song's key. There is **no backend**, and that is a hard constraint:
 
-- **Library songs** live in `library/` and are copied into the build. They can be shared with `?song=<slug>`, which skips the home page.
+- **Library songs** live in `library/` and are copied into the build. They can be shared with `?song=<slug>`, which skips the home page. Once opened (or downloaded from the home page) a library song is kept on the device and plays offline (see **Offline**).
 - **Imported songs** come from drag and drop or the file picker. They exist only in memory as `File`s / blob URLs and can't be shared. Don't add features that assume a server.
 
 Hosting is GitHub Pages, deployed by `.github/workflows/deploy.yml`.
@@ -44,6 +44,7 @@ Tests live in `tests/` and run against a production build under the GitHub Pages
 ```
 scripts/library-plugin.ts   Vite plugin: scans library/ → `virtual:library` manifest; dev middleware serves
                             files under <base>library/; build emits them into dist/library/
+scripts/sw-plugin.ts        Vite plugin (build only): emits sw.js from src/sw.js with the precache list + version prepended
 scripts/analyser-versions.ts Vite plugin: `virtual:analyser-versions`, a hash of each cached analyser's sources
                             (bpm/chordDetect/drumDetect + every local import and worker they reach)
 src/App.tsx                 View switch + URL state (?song=<slug> | ?import=<id>), history handling
@@ -51,6 +52,11 @@ src/lib/parseStemName.ts    Filename → { songName, stemName }; slugify. Shared
                             so keep it dependency-free.
 src/lib/stemMeta.tsx        Stem name → label, icon, sort order (vocals, drums, bass, piano, keys, guitar, …, other)
 src/lib/library.ts          Manifest → SongSource[]; shareUrl()
+src/lib/stemCache.ts        Library stems in Cache Storage (`mosaic-stems`): read-through cache with byte progress and
+                            retries, download/remove a song, prune stems the library no longer has
+src/lib/serviceWorker.ts    Registers the service worker (production only) and announces a waiting update
+src/sw.js                   Service worker: precached app shell (cache-first, navigations → index.html), Google Fonts
+                            stale-while-revalidate. Plain JS; never handles library/ or Range requests
 src/lib/analysisCache.ts    Cached beats/chords/drums per library song: versioned keys, shape-checked reads, clearAnalyses
 src/lib/importFiles.ts      Dropped files/folders → SongSource[]
 src/audio/Engine.ts         Audio engine + tiny store (subscribe/getState for useSyncExternalStore)
@@ -74,7 +80,7 @@ src/audio/mixDown.ts        Sum buffers to mono + integer decimation (shared by 
 src/lib/chords.ts           Chord/key names (transposed, ♯/♭ spelled by key), Roman numerals, chord tones, guitar shapes
 src/lib/chordChart.ts       Chords → bars (chordChart, beat by beat, repeat signs) → song map of progressions. Pure, unit-tested
 src/audio/pitchDelay.ts     measurePitchDelay: SoundTouch's processing delay, measured offline per speed/pitch (cached)
-src/components/Home/        Home page: drop zone, Library and Imported lists
+src/components/Home/        Home page: drop zone, Library and Imported lists, DownloadButton (save offline / remove)
 src/components/Player/      Header, ChordStrip (+ useChords, ChordSheet chart/map/shapes), DrumStrip (+ useDrums, DrumSheet,
                             DrumNotation), MiniPlayer (docked in sheets), timeline.ts (segmentAt/useStarts), StemRow, StemWave, SeekBar, Slider,
                             Transport, bottom sheets
@@ -85,6 +91,7 @@ src/styles/tokens.css       Colour and size tokens sampled from the Moises scree
 src/styles/app.css          All component styles (BEM-ish class names)
 tests/                      Playwright specs (parse, home, player) + helpers.ts
 playwright.config.ts        Builds with BASE_PATH=/mosaic/, serves via vite preview on :4173
+public/                     favicon.svg, manifest.webmanifest and the 192/512 PNG app icons
 library/                    Shareable stems (committed). Optional library/songs.json overrides title, or forces a fixed bpm/offset.
 design/                     Local Moises reference screenshots (git-ignored)
 ```
@@ -108,6 +115,13 @@ design/                     Local Moises reference screenshots (git-ignored)
 - **Analysis cache** (`src/lib/analysisCache.ts`): beats, chords and drums of library songs are kept in localStorage as `mosaic:<kind>:<version>:<slug>` (imported songs are never cached). The version is a hash of the analyser's sources from `virtual:analyser-versions`, so **never hand-bump a cache key**: any change to an analyser (or a file it imports, or its worker) gives new keys by itself. Reads check the result's shape (`isDrumAnalysis`, `isChordAnalysis`, `isCachedBeats`) and drop anything that doesn't fit, so extend those checks when a result type changes; writes remove the song's entries from older versions. The song ⋮ menu's **Re-analyse song** (library songs only) clears the song's three entries and runs the analyses again from the decoded stems: the beat tracker first, then chords and drums as a new job (`run`), so a late result from the old job is dropped.
 - `window.__mosaicEngine` is a test hook (Playwright reads `state`, `position` and `syncReport()`). Keep those names stable or update `tests/helpers.ts`.
 - Always `dispose()` the engine when unmounting. It stops the sources, drops the buffers and closes the AudioContext.
+
+## Offline
+
+- **Stems**: `Engine` reads library stems through `readCachedStem` (`stemCache.ts`): Cache Storage first, else the network (streamed for byte progress, retried with backoff unless the device is offline), then saved. Every opened library song is saved; the home page's download button saves one ahead of time, and its check mark removes it. **Imported songs are never cached.** The cache key is the stem URL, which carries `?v=<content hash>` from `library-plugin.ts`, so a re-encoded stem is fetched again and `pruneStemCache` (run at startup) drops the old copy. Never strip the `?v=`.
+- **Loading**: all stems download at once; only decoding is limited (`DECODE_CONCURRENCY`). The loader shows MB while downloading.
+- **Service worker** (`src/sw.js`, built by `sw-plugin.ts`, registered only in production): precaches every built file and public file except library audio, cache-first, with every navigation answered by the cached `index.html` so the app opens instantly on a slow or missing network. Matches use `ignoreVary` (module scripts/CSS carry an Origin header the precache didn't). A new version waits until the user taps Reload in `UpdateBanner`, so a deploy never swaps code mid-song. It never touches `library/` or Range requests.
+- Tests block service workers by default (`serviceWorkers: 'block'` in `playwright.config.ts`, so `page.route` sees every request); `tests/offline.spec.ts` opts in.
 
 ## UI rules
 

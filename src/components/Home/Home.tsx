@@ -2,11 +2,14 @@ import { useRef, useState, type DragEvent } from 'react';
 import { filesFromDataTransfer, songsFromFiles } from '../../lib/importFiles';
 import { AUDIO_EXTENSIONS } from '../../lib/parseStemName';
 import { shareSong } from '../../lib/share';
+import { downloadSong, isSongSaved, removeSong } from '../../lib/stemCache';
 import { toast } from '../../lib/toast';
 import type { SongSource } from '../../lib/types';
 import { Footer } from '../Footer';
 import { CloseIcon, LinkIcon, UploadIcon, WaveIcon } from '../icons';
+import { DownloadButton } from './DownloadButton';
 import { SongRow } from './SongRow';
+import { useSavedStems } from './useSavedStems';
 
 interface Props {
   library: SongSource[];
@@ -22,6 +25,24 @@ export function Home({ library, imports, onOpen, onImport, onRemoveImport }: Pro
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
+  const saved = useSavedStems();
+  const [downloads, setDownloads] = useState<Record<string, number>>({});
+  const [removing, setRemoving] = useState<SongSource | null>(null);
+
+  const savedSongs = library.filter((s) => isSongSaved(s, saved));
+  const savedMb = Math.round([...saved.values()].reduce((a, b) => a + b, 0) / 1e6);
+
+  async function download(song: SongSource) {
+    setDownloads((d) => ({ ...d, [song.id]: 0 }));
+    try {
+      await downloadSong(song, (f) => setDownloads((d) => (song.id in d ? { ...d, [song.id]: f } : d)));
+      toast('Saved for offline');
+    } catch (e) {
+      toast(navigator.onLine ? (e as Error).message || 'Download failed' : "You're offline");
+    } finally {
+      setDownloads(({ [song.id]: _, ...rest }) => rest);
+    }
+  }
 
   function handleFiles(files: File[]) {
     const songs = songsFromFiles(files);
@@ -111,6 +132,11 @@ export function Home({ library, imports, onOpen, onImport, onRemoveImport }: Pro
 
       <section className="song-list">
         <h2 className="section-title">Library</h2>
+        {savedSongs.length > 0 && (
+          <p className="section-hint">
+            {savedSongs.length} saved for offline · {savedMb} MB
+          </p>
+        )}
         {library.length === 0 ? (
           <p className="section-hint">No shared songs yet. Add stems to the library folder of the repo.</p>
         ) : (
@@ -121,9 +147,17 @@ export function Home({ library, imports, onOpen, onImport, onRemoveImport }: Pro
               subtitle={`${song.stems.length} stems`}
               onOpen={() => onOpen(song)}
               action={
-                <button type="button" className="icon-button" aria-label="Copy share link" onClick={() => shareSong(song)}>
-                  <LinkIcon size={20} />
-                </button>
+                <>
+                  <DownloadButton
+                    saved={isSongSaved(song, saved)}
+                    progress={downloads[song.id] ?? null}
+                    onDownload={() => void download(song)}
+                    onRemove={() => setRemoving(song)}
+                  />
+                  <button type="button" className="icon-button" aria-label="Copy share link" onClick={() => shareSong(song)}>
+                    <LinkIcon size={20} />
+                  </button>
+                </>
               }
             />
           ))
@@ -133,6 +167,38 @@ export function Home({ library, imports, onOpen, onImport, onRemoveImport }: Pro
       <Footer />
 
       {dragging && <div className="drop-overlay">Drop to import</div>}
+
+      {removing && (
+        <div className="modal-backdrop" onClick={() => setRemoving(null)}>
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Remove download"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="modal__title">Remove download?</h2>
+            <p className="modal__text">
+              <strong>{removing.name}</strong> will need the network again next time you open it.
+            </p>
+            <div className="modal__actions">
+              <button type="button" className="pill-button pill-button--outline" onClick={() => setRemoving(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="pill-button"
+                onClick={() => {
+                  void removeSong(removing);
+                  setRemoving(null);
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

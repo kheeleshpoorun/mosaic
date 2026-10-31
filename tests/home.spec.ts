@@ -62,7 +62,7 @@ test('loading progress shows in a modal over a blurred backdrop', async ({ page 
   // Hold back the stems so the modal stays up long enough to inspect.
   let release!: () => void;
   const held = new Promise<void>((r) => (release = r));
-  await page.route(/\/library\/.+\.(mp3|m4a|wav|ogg|flac|aac)$/i, async (route) => {
+  await page.route(/\/library\/.+\.(mp3|m4a|wav|ogg|flac|aac)(\?|$)/i, async (route) => {
     await held;
     await route.continue();
   });
@@ -74,9 +74,9 @@ test('loading progress shows in a modal over a blurred backdrop', async ({ page 
   await expect(dialog.locator('.loader__song')).toHaveText(SONG_NAME);
   await expect(dialog.getByRole('progressbar')).toBeVisible();
   await expect(dialog.locator('.loader__quip')).not.toBeEmpty();
-  // One icon chip per stem; the two being fetched (decode concurrency) are marked active.
+  // One icon chip per stem; every stem downloads at once (only decoding is limited).
   await expect(dialog.locator('.loader__stem')).toHaveCount(STEM_COUNT);
-  await expect(dialog.locator('.loader__stem--fetching')).toHaveCount(2);
+  await expect(dialog.locator('.loader__stem--fetching')).toHaveCount(STEM_COUNT);
   await expect(dialog.locator('.loader__stem--done')).toHaveCount(0);
   await page.screenshot({ path: 'test-results/loading-modal.png' });
   expect(await backdrop.evaluate((el) => getComputedStyle(el).backdropFilter)).toContain('blur');

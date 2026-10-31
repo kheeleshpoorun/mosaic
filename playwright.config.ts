@@ -18,6 +18,8 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${PORT}${BASE_PATH}`,
     trace: 'retain-on-failure',
+    // The service worker would answer requests before page.route sees them; tests/offline.spec.ts opts in.
+    serviceWorkers: 'block',
   },
   projects: [
     {

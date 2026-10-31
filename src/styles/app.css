@@ -204,6 +204,24 @@ button:disabled {
   color: var(--danger);
 }
 
+.modal__text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.modal__text strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.modal__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
 /* loading modal: song name, one chip per stem, rotating quip, progress */
 .loader {
   gap: 0;
@@ -1727,6 +1745,55 @@ button:disabled {
 
 .song-row .icon-button {
   color: var(--text-secondary);
+}
+
+/* offline download: arrow → progress ring → saved check */
+.song-row .download--saved {
+  color: var(--text);
+}
+
+.download__track,
+.download__ring {
+  fill: none;
+  stroke-width: 2;
+}
+
+.download__track {
+  stroke: var(--track-dim);
+}
+
+.download__ring {
+  stroke: var(--text);
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: center;
+  transition: stroke-dashoffset 0.2s linear;
+}
+
+/* service worker: new version ready */
+.update-banner {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  z-index: 41;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100% - 32px);
+  padding: 6px 6px 6px 18px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+  font-size: 14px;
+  transform: translateX(-50%);
+  animation: fade 0.2s ease-out;
+}
+
+.update-banner .pill-button {
+  min-height: 36px;
+  padding: 0 16px;
+  font-size: 14px;
 }
 
 .drop-overlay {
