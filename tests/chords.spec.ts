@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { analyzeChords, beatGrid, type Chord, type ChordQuality } from '../src/audio/chords';
-import { chordName, chordTones, guitarShape, keyName } from '../src/lib/chords';
+import { barsFromBeats, chordChart, progressions, songChords } from '../src/lib/chordChart';
+import { chordName, chordNumeral, chordTones, guitarShape, keyName } from '../src/lib/chords';
 
 const SR = 11025;
 const BPM = 100;
@@ -145,4 +146,62 @@ test('every chord has a guitar shape that plays its notes', () => {
       expect(Math.max(...shape.frets.map((f) => f ?? 0))).toBeLessThanOrEqual(15);
     }
   }
+});
+
+test('Roman numerals follow the key, lowercase for minor chords', () => {
+  const cMajor = { tonic: 0, mode: 'major', confidence: 1 } as const;
+  const aMinor = { tonic: 9, mode: 'minor', confidence: 1 } as const;
+  expect(['Am', 'F', 'C', 'G'].map((n) => chordNumeral(parse(n), cMajor))).toEqual(['vi', 'IV', 'I', 'V']);
+  expect(['Am', 'F', 'C', 'G'].map((n) => chordNumeral(parse(n), aMinor))).toEqual(['i', 'VI', 'III', 'VII']);
+  expect(chordNumeral(parse('G7'), cMajor)).toBe('V7');
+  expect(chordNumeral(parse('Dm7'), cMajor)).toBe('ii7');
+  expect(chordNumeral(parse('Bb'), cMajor)).toBe('♭VII');
+  expect(chordNumeral(parse('E7'), aMinor)).toBe('V7');
+  expect(chordNumeral({ root: -1, quality: 'N' }, cMajor)).toBe('N.C.');
+});
+
+/** Segments of a progression, one chord name per bar ('-' = no chord), at 1 s per beat in 4/4. */
+function chart(names: string[]) {
+  const segments = names.map((n, b) => ({ ...(n === '-' ? { root: -1, quality: 'N' as const } : parse(n)), start: b * 4, end: b * 4 + 4 }));
+  const beats = Array.from({ length: names.length * 4 }, (_, k) => k);
+  return { segments, bars: chordChart(segments, barsFromBeats(beats, 0, 4, names.length * 4)) };
+}
+
+test('bars start on the downbeat, with the pickup bar extrapolated', () => {
+  const beats = Array.from({ length: 10 }, (_, k) => 0.5 + k * 0.5);
+  const bars = barsFromBeats(beats, 2, 4, 5.5);
+  expect(bars[0].beats).toEqual([-0.5, 0, 0.5, 1]);
+  expect(bars[0].start).toBe(0);
+  expect(bars[1].start).toBe(1.5);
+  expect(bars.at(-1)!.end).toBe(5.5);
+});
+
+test('the chart has the chords of each bar, beat by beat, and repeat signs for bars played again', () => {
+  const segments = [
+    { ...parse('Am'), start: 0, end: 4 },
+    { ...parse('F'), start: 4, end: 6 },
+    { ...parse('G'), start: 6, end: 8 },
+    { ...parse('F'), start: 8, end: 10 },
+    { ...parse('G'), start: 10, end: 12 },
+  ];
+  const bars = chordChart(segments, barsFromBeats(Array.from({ length: 12 }, (_, k) => k), 0, 4, 12));
+  expect(bars.map((b) => b.chords.map((c) => `${chordName(c)}@${c.beat}+${c.length}`))).toEqual([['Am@0+4'], ['F@0+2', 'G@2+2'], ['F@0+2', 'G@2+2']]);
+  expect(bars.map((b) => b.repeat)).toEqual([false, false, true]);
+});
+
+test('the song map folds repeated progressions and keeps stretches with no chords', () => {
+  const { bars } = chart(['-', '-', 'Am', 'F', 'C', 'G', 'Am', 'F', 'C', 'G', 'Dm', 'Dm', 'Dm', 'Dm', 'E', '-']);
+  const map = progressions(bars).map((s) => `${s.first + 1}:${s.chords.map((c) => chordName(c)).join(' ') || 'none'}×${s.count}/${s.length}`);
+  expect(map).toEqual(['1:none×1/2', '3:Am F C G×2/4', '11:Dm×4/1', '15:E×1/1', '16:none×1/1']);
+});
+
+test('a phrase is read at its shortest period, and loose bars are grouped', () => {
+  const { bars } = chart(['C', 'Am', 'C', 'Am', 'C', 'Am', 'C', 'Am', 'F', 'G', 'Em', 'A']);
+  const map = progressions(bars).map((s) => `${s.chords.map((c) => chordName(c)).join(' ')}×${s.count}`);
+  expect(map).toEqual(['C Am×4', 'F G Em A×1']);
+});
+
+test('the chord shapes list each chord once, in order of first appearance', () => {
+  const { segments } = chart(['Am', 'F', '-', 'Am', 'C', 'F']);
+  expect(songChords(segments).map((c) => chordName(c))).toEqual(['Am', 'F', 'C']);
 });

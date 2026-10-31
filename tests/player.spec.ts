@@ -290,16 +290,76 @@ test('chord strip shows the key and the chords on top of the stems, and follows 
   await expect(page.locator('.chords__chip--active')).toHaveCount(1);
 });
 
-test('tapping the chord strip opens guitar and piano diagrams', async ({ page }) => {
+test('the chord sheet shows the chart bar by bar, following playback, in names or numbers', async ({ page }) => {
   await expect.poll(() => page.locator('.chords__chip').count(), { timeout: 45_000 }).toBeGreaterThan(10);
   await clickSeek(page, 0.5);
-  await page.getByRole('button', { name: /^Chord diagrams/ }).click();
+  await page.getByRole('button', { name: /^Chord chart/ }).click();
   const sheet = page.getByRole('dialog', { name: 'Chords' });
   await expect(sheet.locator('.chord-now__name')).toHaveText(/^[A-G]/);
-  await expect(sheet.locator('svg.guitar')).toBeVisible();
+  await expect(sheet.locator('.chord-meta')).toHaveText(/^Key [A-G][♯♭]?m? · [34]\/4 · Bar \d+ of \d+$/);
+
+  // Four bars a line, the current one lit with its beats; bars played again show a repeat sign.
+  const bars = sheet.locator('.chord-chart__bar');
+  expect(await bars.count()).toBeGreaterThan(40);
+  await expect(sheet.locator('.chord-chart__bar.is-now')).toHaveCount(1);
+  const meter = Number(/([34])\/4/.exec((await sheet.locator('.chord-meta').textContent())!)![1]);
+  await expect(sheet.locator('.chord-chart__bar.is-now .chord-chart__beats span')).toHaveCount(meter);
+  await expect(sheet.locator('.chord-chart__bar.is-now .chord-chart__beats .is-on')).toHaveCount(1);
+  expect(await sheet.locator('.chord-chart__repeat svg').count()).toBeGreaterThan(0);
+  await expect(sheet.locator('.chord-chart__num').first()).toHaveText('1');
+  await expect(sheet.locator('.chord-chart__num').nth(1)).toHaveText('5');
+
+  // Numbers: Roman numerals relative to the key, remembered.
+  await sheet.getByRole('button', { name: 'Numbers' }).click();
+  await expect(sheet.locator('.chord-now__name')).toHaveText(/^(♭|♯)?(I|II|III|IV|V|VI|VII|i|ii|iii|iv|v|vi|vii)(7|maj7)?$/);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /^Chord chart/ }).click();
+  await expect(sheet.getByRole('button', { name: 'Numbers' })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('tapping a chord chart bar or a song map progression seeks there', async ({ page }) => {
+  await expect.poll(() => page.locator('.chords__chip').count(), { timeout: 45_000 }).toBeGreaterThan(10);
+  await page.getByRole('button', { name: /^Chord chart/ }).click();
+  const sheet = page.getByRole('dialog', { name: 'Chords' });
+
+  await sheet.getByRole('button', { name: 'Bar 21', exact: true }).click();
+  await expect(sheet.locator('.chord-meta')).toContainText('Bar 21 of');
+  await expect(sheet.getByRole('button', { name: 'Bar 21', exact: true })).toHaveClass(/is-now/);
+
+  const items = sheet.locator('.chord-map__item');
+  expect(await items.count()).toBeGreaterThan(2);
+  await expect(sheet.locator('.chord-map__item .drum-map__count', { hasText: /^×\d+$/ }).first()).toBeVisible();
+  const target = items.nth(2);
+  const first = Number((await target.locator('.drum-map__bars').textContent())!.split('–')[0]);
+  await target.click();
+  await expect(target).toHaveClass(/is-now/);
+  await expect(sheet.locator('.chord-meta')).toContainText(`Bar ${first} of`);
+});
+
+test('guitar and piano shapes of the song\'s chords are tucked away until opened', async ({ page }) => {
+  await expect.poll(() => page.locator('.chords__chip').count(), { timeout: 45_000 }).toBeGreaterThan(10);
+  await clickSeek(page, 0.5);
+  await page.getByRole('button', { name: /^Chord chart/ }).click();
+  const sheet = page.getByRole('dialog', { name: 'Chords' });
+  await expect(sheet.locator('svg.guitar')).toHaveCount(0);
+
+  const toggle = sheet.getByRole('button', { name: /^Chord shapes/ });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await toggle.click();
+  const shapes = sheet.locator('.chord-shape');
+  expect(await shapes.count()).toBeGreaterThan(2);
+  expect(await sheet.locator('svg.guitar').count()).toBe(await shapes.count());
+  await expect(sheet.locator('.chord-shape.is-now')).toHaveCount(1);
+  await expect(sheet.locator('.chord-shape.is-now .chord-shape__name')).toHaveText((await sheet.locator('.chord-now__name').textContent())!);
+
   await sheet.getByRole('button', { name: 'Piano' }).click();
-  await expect(sheet.locator('svg.piano')).toBeVisible();
-  expect(await sheet.locator('.piano .is-on').count()).toBeGreaterThanOrEqual(3);
+  expect(await sheet.locator('svg.piano').count()).toBe(await shapes.count());
+  expect(await sheet.locator('.chord-shape.is-now .piano .is-on').count()).toBeGreaterThanOrEqual(3);
+
+  // Stays open next time.
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /^Chord chart/ }).click();
+  await expect(sheet.getByRole('button', { name: /^Chord shapes/ })).toHaveAttribute('aria-expanded', 'true');
 });
 
 test('key and chord names follow the pitch, in the strip and in Pitch & speed', async ({ page }) => {
@@ -453,7 +513,7 @@ test('the drum sheet docks a mini player to pause, play and seek without closing
 
 test('the chord, metronome and pitch sheets have the mini player; menus do not', async ({ page }) => {
   await expect.poll(() => page.locator('.chords__chip').count(), { timeout: 45_000 }).toBeGreaterThan(10);
-  await page.getByRole('button', { name: /^Chord diagrams/ }).click();
+  await page.getByRole('button', { name: /^Chord chart/ }).click();
   await expect(page.getByRole('dialog', { name: 'Chords' }).locator('.mini-player')).toBeVisible();
   await page.keyboard.press('Escape');
 

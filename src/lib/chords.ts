@@ -43,6 +43,24 @@ export function chordName(chord: Chord, semitones = 0, key: SongKey | null = nul
   return noteName(root, flats) + SUFFIX[chord.quality];
 }
 
+/** Scale degrees by semitones above the tonic: major keys against the major scale, minor keys against natural minor. */
+const DEGREES = {
+  major: ['I', '♭II', 'II', '♭III', 'III', 'IV', '♯IV', 'V', '♭VI', 'VI', '♭VII', 'VII'],
+  minor: ['I', '♭II', 'II', 'III', '♯III', 'IV', '♯IV', 'V', 'VI', '♯VI', 'VII', '♯VII'],
+};
+const NUMERAL_SUFFIX: Record<Exclude<ChordQuality, 'N'>, string> = { maj: '', min: '', '7': '7', maj7: 'maj7', m7: '7' };
+
+/**
+ * Roman numeral of a chord in the key (vi IV I V): lowercase for minor chords. The same at any
+ * pitch, since chord and key move together.
+ */
+export function chordNumeral(chord: Chord, key: SongKey): string {
+  if (chord.quality === 'N') return 'N.C.';
+  const degree = DEGREES[key.mode][mod12(chord.root - key.tonic)];
+  const minor = chord.quality === 'min' || chord.quality === 'm7';
+  return (minor ? degree.toLowerCase() : degree) + NUMERAL_SUFFIX[chord.quality];
+}
+
 /** Pitch classes of the chord, root first. */
 export function chordTones({ root, quality }: Chord): number[] {
   return quality === 'N' ? [] : QUALITY_INTERVALS[quality].map((iv) => mod12(root + iv));

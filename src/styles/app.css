@@ -1289,12 +1289,187 @@ button:disabled {
   text-transform: uppercase;
 }
 
-.chord-diagram {
+/* chord sheet: now/next (pinned), the chart, the song map, then the tucked-away chord shapes */
+.chord-head {
+  position: sticky;
+  top: -8px;
+  z-index: 1;
+  margin: 0 -20px;
+  padding: 0 20px 10px;
+  background: var(--surface);
+}
+
+.chord-head .chord-now {
+  padding-bottom: 2px;
+}
+
+.chord-meta {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.chord-chart {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 14px 0 4px;
+}
+
+.chord-chart__bar {
+  position: relative;
   display: flex;
-  justify-content: center;
   align-items: center;
-  min-height: 200px;
-  padding: 16px 0 4px;
+  min-width: 0;
+  min-height: 52px;
+  padding: 14px 6px 10px;
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  /* clears the pinned now/next header when the chart follows playback */
+  scroll-margin-top: 110px;
+}
+
+.chord-chart__bar--empty {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+}
+
+.chord-chart__bar.is-now {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.chord-chart__num {
+  position: absolute;
+  top: 3px;
+  left: 6px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.chord-chart__chord {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.chord-chart__chord + .chord-chart__chord {
+  padding-left: 4px;
+  border-left: 1px solid var(--border);
+}
+
+.chord-chart__chord.is-nc {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.chord-chart__repeat {
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+
+.chord-chart__beats {
+  position: absolute;
+  right: 6px;
+  bottom: 4px;
+  left: 6px;
+  display: flex;
+  gap: 3px;
+}
+
+.chord-chart__beats span {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--track-dim);
+}
+
+.chord-chart__beats .is-on {
+  background: var(--heart);
+}
+
+.chord-map__chords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.chord-map__item.is-now .chord-map__chords {
+  color: var(--text);
+}
+
+.chord-shapes {
+  margin-top: 18px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.chord-shapes__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 48px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.chord-shapes__count {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.chord-shapes__grid {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0 4px;
+}
+
+.chord-shapes__grid--guitar {
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+}
+
+.chord-shapes__grid--piano {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+
+.chord-shape {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+}
+
+.chord-shape.is-now {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.chord-shape__name {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.chord-shape .guitar,
+.chord-shape .piano {
+  width: 100%;
 }
 
 .guitar {

@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { detectBeats } from '../../audio/bpm';
+import { beatGrid } from '../../audio/chords';
 import { Engine } from '../../audio/Engine';
 import { useEngineState, usePosition } from '../../audio/hooks';
 import { shareSong } from '../../lib/share';
 import { stemMeta } from '../../lib/stemMeta';
 import { toast } from '../../lib/toast';
 import type { SongSource } from '../../lib/types';
+import { barsFromBeats } from '../../lib/chordChart';
 import { keyName } from '../../lib/chords';
 import { Footer } from '../Footer';
 import { ChevronDownIcon, MoreVerticalIcon, ShareIcon } from '../icons';
@@ -180,6 +182,15 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
   // After the beats effect above, so it sees beats it just set or a detection it just started.
   const chords = useChords(engine, song, state);
   const drums = useDrums(engine, song, state);
+  const seek = useCallback((t: number) => engine.seek(t), [engine]);
+
+  // Bars for the chord chart: the drum transcription's (its meter and downbeat), else the metronome's beats in 4/4.
+  const { beats, downbeat, bpm, offset } = state.metronome;
+  const chordBars = useMemo(() => {
+    if (drums.analysis?.bars.length) return { bars: drums.analysis.bars, meter: drums.analysis.meter };
+    const grid = beats ?? beatGrid(bpm, offset, state.duration);
+    return { bars: barsFromBeats(grid, beats ? downbeat : 0, 4, state.duration), meter: 4 };
+  }, [drums.analysis, beats, downbeat, bpm, offset, state.duration]);
 
   // Keyboard shortcuts.
   useEffect(() => {
@@ -246,9 +257,18 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
       {panel === 'metronome' && <MetronomeSheet engine={engine} state={state} onClose={closePanel} onDetect={runDetection} dock={dock} />}
       {panel === 'pitch' && <PitchSpeedSheet engine={engine} state={state} keyLabel={keyLabel(chords, state.pitch)} onClose={closePanel} dock={dock} />}
       {panel === 'chords' && chords.analysis && (
-        <ChordSheet analysis={chords.analysis} position={shown} pitch={state.pitch} onClose={closePanel} dock={dock} />
+        <ChordSheet
+          analysis={chords.analysis}
+          bars={chordBars.bars}
+          meter={chordBars.meter}
+          position={shown}
+          pitch={state.pitch}
+          onSeek={seek}
+          onClose={closePanel}
+          dock={dock}
+        />
       )}
-      {panel === 'drums' && drums.analysis && <DrumSheet analysis={drums.analysis} position={shown} onSeek={(t) => engine.seek(t)} onClose={closePanel} dock={dock} />}
+      {panel === 'drums' && drums.analysis && <DrumSheet analysis={drums.analysis} position={shown} onSeek={seek} onClose={closePanel} dock={dock} />}
       {panel === 'menu' && (
         <Sheet title={song.name} onClose={closePanel}>
           {song.shareable && (

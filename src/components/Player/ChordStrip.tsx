@@ -39,7 +39,7 @@ export function ChordStrip({ chords, position, pitch, onOpen, onKey }: Props) {
       <button
         type="button"
         className="chords__view"
-        aria-label={current && current.quality !== 'N' ? `Chord diagrams, now ${chordName(current, pitch, key)}` : 'Chord diagrams'}
+        aria-label={current && current.quality !== 'N' ? `Chord chart, now ${chordName(current, pitch, key)}` : 'Chord chart'}
         disabled={!hasChords}
         onClick={onOpen}
       >
