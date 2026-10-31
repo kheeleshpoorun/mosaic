@@ -1,22 +1,11 @@
-import { memo, useMemo } from 'react';
-import type { ChordAnalysis, ChordSegment } from '../../audio/chords';
-import { firstBeatAtOrAfter } from '../../audio/metronome';
+import { memo } from 'react';
+import type { ChordAnalysis } from '../../audio/chords';
 import { chordName, keyName } from '../../lib/chords';
+import { segmentAt, useStarts } from './timeline';
 import type { ChordsState } from './useChords';
 
 /** Horizontal scale of the strip. */
-const PX_PER_SECOND = 56;
-
-/** Index of the segment playing at `t` (-1 before the first one). */
-export function segmentAt(segments: ChordSegment[], starts: number[], t: number): number {
-  const i = firstBeatAtOrAfter(starts, t + 1e-6) - 1;
-  return i >= 0 && t < segments[i].end ? i : -1;
-}
-
-/** Segment starts, for binary search with segmentAt. */
-export function useStarts(analysis: ChordAnalysis | null): number[] {
-  return useMemo(() => analysis?.segments.map((s) => s.start) ?? [], [analysis]);
-}
+export const PX_PER_SECOND = 56;
 
 interface Props {
   chords: ChordsState;
@@ -33,7 +22,7 @@ interface Props {
  */
 export function ChordStrip({ chords, position, pitch, onOpen, onKey }: Props) {
   const { analysis, status } = chords;
-  const starts = useStarts(analysis);
+  const starts = useStarts(analysis?.segments);
   const active = analysis ? segmentAt(analysis.segments, starts, position) : -1;
   const key = analysis?.key ?? null;
   const current = analysis && active >= 0 ? analysis.segments[active] : null;

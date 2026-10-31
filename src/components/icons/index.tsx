@@ -231,3 +231,12 @@ export const HeartIcon = (p: IconProps) => (
     <path d="M12 21s-7.5-4.6-9.6-9.4C.9 8.2 3 4 6.9 4c2.2 0 3.8 1.2 5.1 3 1.3-1.8 2.9-3 5.1-3 3.9 0 6 4.2 4.5 7.6C19.5 16.4 12 21 12 21Z" />
   </Svg>
 );
+
+/** One-bar repeat sign (simile mark), as on drum charts. */
+export const RepeatBarIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M17 5 7 19" strokeWidth={2.4} />
+    <circle cx="7.5" cy="8" r="1.4" fill="currentColor" stroke="none" />
+    <circle cx="16.5" cy="16" r="1.4" fill="currentColor" stroke="none" />
+  </Svg>
+);

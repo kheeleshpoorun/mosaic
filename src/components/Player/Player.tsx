@@ -11,6 +11,8 @@ import { Footer } from '../Footer';
 import { ChevronDownIcon, MoreVerticalIcon, ShareIcon } from '../icons';
 import { ChordSheet } from './ChordSheet';
 import { ChordStrip } from './ChordStrip';
+import { DrumSheet } from './DrumSheet';
+import { DrumStrip } from './DrumStrip';
 import { LoadingModal } from './LoadingModal';
 import { MetronomeSheet } from './MetronomeSheet';
 import { PitchSpeedSheet } from './PitchSpeedSheet';
@@ -19,8 +21,9 @@ import { MenuItem, Sheet } from './Sheet';
 import { StemRow } from './StemRow';
 import { Transport } from './Transport';
 import { useChords, type ChordsState } from './useChords';
+import { useDrums } from './useDrums';
 
-type Panel = null | 'metronome' | 'pitch' | 'menu' | 'chords' | { stem: number };
+type Panel = null | 'metronome' | 'pitch' | 'menu' | 'chords' | 'drums' | { stem: number };
 
 /** Bump the version when the beat tracker changes so stale results aren't reused. */
 const beatsKey = (id: string) => `mosaic:beats:v2:${id}`;
@@ -93,6 +96,26 @@ function writeShowChords(show: boolean) {
   }
 }
 
+/** Per-viewer preference: drum groove strip under the chord strip (on unless switched off). */
+const DRUMS_KEY = 'mosaic:drums';
+
+function readShowDrums(): boolean {
+  try {
+    return localStorage.getItem(DRUMS_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+}
+
+function writeShowDrums(show: boolean) {
+  try {
+    if (show) localStorage.removeItem(DRUMS_KEY);
+    else localStorage.setItem(DRUMS_KEY, 'off');
+  } catch {
+    // storage unavailable — the choice lasts for this session only
+  }
+}
+
 /** Subtitle of the Key row in Pitch & speed: the original key, and where the pitch takes it. */
 function keyLabel({ status, analysis }: ChordsState, pitch: number): string {
   if (status === 'analysing') return 'Detecting key…';
@@ -122,6 +145,7 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
   const [panel, setPanel] = useState<Panel>(null);
   const [showWaves, setShowWaves] = useState(readShowWaves);
   const [showChords, setShowChords] = useState(readShowChords);
+  const [showDrums, setShowDrums] = useState(readShowDrums);
   // While the seek bar is dragged, the waveform highlight follows the drag, not the playhead.
   const [scrub, setScrub] = useState<number | null>(null);
   const shown = scrub ?? position;
@@ -152,6 +176,7 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
 
   // After the beats effect above, so it sees beats it just set or a detection it just started.
   const chords = useChords(engine, song, state);
+  const drums = useDrums(engine, song, state);
 
   // Keyboard shortcuts.
   useEffect(() => {
@@ -199,6 +224,9 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
       {showChords && (
         <ChordStrip chords={chords} position={shown} pitch={state.pitch} onOpen={() => setPanel('chords')} onKey={() => setPanel('pitch')} />
       )}
+      {showDrums && (
+        <DrumStrip drums={drums} position={shown} bpm={state.metronome.bpm} onOpen={() => setPanel('drums')} onTempo={() => setPanel('metronome')} />
+      )}
 
       <div className="stems" style={{ '--progress': `${state.duration ? (shown / state.duration) * 100 : 0}%` } as CSSProperties}>
         {state.stems.map((_, i) => (
@@ -217,6 +245,7 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
       {panel === 'chords' && chords.analysis && (
         <ChordSheet analysis={chords.analysis} position={shown} pitch={state.pitch} onClose={closePanel} />
       )}
+      {panel === 'drums' && drums.analysis && <DrumSheet analysis={drums.analysis} position={shown} onSeek={(t) => engine.seek(t)} onClose={closePanel} />}
       {panel === 'menu' && (
         <Sheet title={song.name} onClose={closePanel}>
           {song.shareable && (
@@ -246,6 +275,15 @@ function PlayerView({ engine, song, onClose }: { engine: Engine; song: SongSourc
             }}
           >
             {showChords ? 'Hide chords' : 'Show chords'}
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              writeShowDrums(!showDrums);
+              setShowDrums(!showDrums);
+              closePanel();
+            }}
+          >
+            {showDrums ? 'Hide drums' : 'Show drums'}
           </MenuItem>
           <MenuItem
             onClick={() => {

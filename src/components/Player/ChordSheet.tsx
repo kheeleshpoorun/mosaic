@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Chord, ChordAnalysis } from '../../audio/chords';
 import { chordName, chordTones, guitarShape, transposeChord } from '../../lib/chords';
-import { segmentAt, useStarts } from './ChordStrip';
+import { segmentAt, useStarts } from './timeline';
 import { Sheet } from './Sheet';
 
 type Instrument = 'guitar' | 'piano';
@@ -35,7 +35,7 @@ interface Props {
 /** Diagram of the chord playing now (it follows playback), and the one coming next. */
 export function ChordSheet({ analysis, position, pitch, onClose }: Props) {
   const [instrument, setInstrument] = useState(readInstrument);
-  const starts = useStarts(analysis);
+  const starts = useStarts(analysis.segments);
   const { segments, key } = analysis;
   const i = segmentAt(segments, starts, position);
   const now = i >= 0 && segments[i].quality !== 'N' ? segments[i] : null;

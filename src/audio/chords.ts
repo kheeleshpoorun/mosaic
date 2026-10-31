@@ -394,7 +394,7 @@ function detectKey(
 // ---------- FFT ----------
 
 /** In-place iterative radix-2 FFT (size must be a power of two). */
-class FFT {
+export class FFT {
   private rev: Uint32Array;
   private cos: Float64Array;
   private sin: Float64Array;

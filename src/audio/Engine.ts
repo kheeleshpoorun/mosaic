@@ -483,6 +483,12 @@ export class Engine {
     return this.tracks[idx >= 0 ? idx : 0]?.buffer ?? null;
   }
 
+  /** Decoded drums stem for the drum strip; null when the song has none (no other stem stands in). */
+  drumBuffer(): AudioBuffer | null {
+    const idx = this.state.stems.findIndex((s) => /drum|perc|beat/i.test(s.name));
+    return idx >= 0 ? (this.tracks[idx]?.buffer ?? null) : null;
+  }
+
   /**
    * Decoded audio used for chord detection: the pitched stems (no drums or vocals; everything but
    * the drums when that leaves nothing), and the bass stem on its own for the roots.

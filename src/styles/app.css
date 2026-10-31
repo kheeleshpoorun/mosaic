@@ -442,7 +442,8 @@ button:disabled {
 }
 
 /* chord strip on top of the stems: fixed key badge + chords scrolling under a fixed playhead */
-.chords {
+.chords,
+.drums {
   flex-shrink: 0;
   display: flex;
   height: 56px;
@@ -452,7 +453,8 @@ button:disabled {
   overflow: hidden;
 }
 
-.chords__key {
+.chords__key,
+.drums__badge {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -466,13 +468,15 @@ button:disabled {
   line-height: 1.15;
 }
 
-.chords__key small {
+.chords__key small,
+.drums__badge small {
   font-size: 11px;
   font-weight: 500;
   color: var(--text-secondary);
 }
 
-.chords__view {
+.chords__view,
+.drums__view {
   position: relative;
   flex: 1;
   min-width: 0;
@@ -482,12 +486,14 @@ button:disabled {
   mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
 }
 
-.chords__view:disabled {
+.chords__view:disabled,
+.drums__view:disabled {
   opacity: 1;
   cursor: default;
 }
 
-.chords__status {
+.chords__status,
+.drums__status {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -497,7 +503,8 @@ button:disabled {
   color: var(--text-secondary);
 }
 
-.chords__track {
+.chords__track,
+.drums__track {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -505,7 +512,8 @@ button:disabled {
   will-change: transform;
 }
 
-.chords__chip {
+.chords__chip,
+.drums__chip {
   position: absolute;
   top: 10px;
   bottom: 10px;
@@ -521,11 +529,13 @@ button:disabled {
   transition: color 0.15s;
 }
 
-.chords__chip--active {
+.chords__chip--active,
+.drums__chip--active {
   color: var(--text);
 }
 
-.chords__playhead {
+.chords__playhead,
+.drums__playhead {
   position: absolute;
   top: 8px;
   bottom: 8px;
@@ -538,9 +548,84 @@ button:disabled {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chords__chip {
+  .chords__chip,
+  .drums__chip {
     transition: none;
   }
+}
+
+/* drum strip: read like a drum chart (pattern where a groove starts, 𝄎 for repeats, fills marked) */
+.drums {
+  height: 64px;
+}
+
+.drums__chip {
+  justify-content: center;
+  gap: 6px;
+  top: 9px;
+  bottom: 9px;
+}
+
+.drums__chip--change {
+  border-left: 2px solid var(--text-muted);
+}
+
+.drums__chip--active.drums__chip--change {
+  border-left-color: var(--text);
+}
+
+.drums__chip--fill {
+  border-radius: 6px;
+  background: var(--surface-raised);
+}
+
+.drums__tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.drums__mini {
+  position: relative;
+  flex: 1;
+  align-self: stretch;
+  margin: 3px 0;
+  /* faint line at the start of every beat */
+  background-image: linear-gradient(to right, var(--border-subtle) 1px, transparent 1px);
+  background-size: calc(100% / var(--beats)) 100%;
+}
+
+.drums__dot {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.drums__dot--0 {
+  top: 18%;
+  border-radius: 1px;
+  transform: rotate(45deg) scale(0.85);
+}
+
+.drums__dot--1 {
+  top: 50%;
+}
+
+.drums__dot--2 {
+  top: 82%;
+}
+
+.drums__dot.is-ghost {
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  background: none;
+  border: 1px solid currentColor;
 }
 
 .stems {
@@ -934,6 +1019,223 @@ button:disabled {
 .segmented__btn--on {
   background: var(--accent);
   color: var(--on-accent);
+}
+
+/* drum sheet: the bar playing now and the next one (grid or notation), then the song map */
+.drum-feel {
+  white-space: nowrap;
+}
+
+.drum-read {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 0 4px;
+}
+
+.drum-read__caption {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.drum-read__tag {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.drum-read__same {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+}
+
+.drum-read__rest {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.drum-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.drum-grid__row {
+  display: grid;
+  grid-template-columns: 26px repeat(var(--steps), 1fr);
+  align-items: center;
+  gap: 2px;
+}
+
+.drum-grid__lane {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.drum-grid__cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  border-radius: 4px;
+  background: var(--surface-raised);
+}
+
+.drum-grid__cell--beat {
+  background: var(--surface-hover);
+}
+
+.drum-grid__cell.is-now {
+  box-shadow: inset 0 0 0 1.5px var(--text);
+}
+
+.drum-grid__count {
+  height: 18px;
+  background: none;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.drum-grid__count.drum-grid__cell--beat {
+  background: none;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.drum-grid__hit {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--text);
+}
+
+.drum-grid__hit--cymbal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  height: auto;
+  background: none;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.drum-grid__hit.is-ghost {
+  width: 7px;
+  height: 7px;
+  background: none;
+  border: 1.5px solid var(--text);
+}
+
+.notation {
+  display: block;
+  width: 100%;
+  height: auto;
+  color: var(--text);
+  fill: none;
+  stroke: currentColor;
+}
+
+.notation__line,
+.notation__barline {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+}
+
+.notation__clef,
+.notation__fill {
+  fill: currentColor;
+  stroke: none;
+}
+
+.notation__stem {
+  stroke-width: 1.2;
+}
+
+.notation__flag {
+  stroke-width: 1.8;
+}
+
+.notation__tuplet {
+  fill: var(--text-secondary);
+  stroke: none;
+  font-size: 9px;
+  text-anchor: middle;
+}
+
+.notation__now {
+  fill: var(--text);
+  fill-opacity: 0.1;
+  stroke: none;
+}
+
+.drum-map__title {
+  margin: 18px 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.drum-map {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.drum-map__item {
+  display: grid;
+  grid-template-columns: 56px 1fr 44px;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 6px 12px;
+  border-radius: var(--radius-card);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  text-align: left;
+}
+
+.drum-map__item.is-now {
+  color: var(--text);
+  box-shadow: inset 0 0 0 1.5px var(--border);
+}
+
+.drum-map__item .drums__mini {
+  height: 26px;
+}
+
+.drum-map__bars {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.drum-map__rest {
+  font-size: 14px;
+}
+
+.drum-map__count {
+  font-size: 14px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.drum-map__item--fill .drum-map__count {
+  font-size: 11px;
+  text-transform: uppercase;
 }
 
 .chord-diagram {

@@ -1,2 +1,2 @@
 /** App version shown in the footer. Keep in sync with "version" in package.json. */
-export const APP_VERSION = '1.5.0';
+export const APP_VERSION = '1.6.0';

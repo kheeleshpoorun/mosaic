@@ -336,3 +336,90 @@ test('chords can be hidden from the song menu, and the choice sticks', async ({ 
   await page.getByRole('button', { name: 'Show chords' }).click();
   await expect(page.locator('.chords')).toBeVisible();
 });
+
+test('drum strip reads like a chart under the chord strip, and follows the playhead', async ({ page }) => {
+  const chips = page.locator('.drums__chip');
+  await expect.poll(() => chips.count(), { timeout: 45_000 }).toBeGreaterThan(10);
+  await expect(page.locator('.drums__badge')).toHaveText(/^\d+ BPM[34]\/4$/);
+  // Grooves are drawn where they start; bars that play them again are repeat signs.
+  expect(await page.locator('.drums__chip--change .drums__mini').count()).toBeGreaterThan(0);
+  expect(await page.locator('.drums__chip--repeat svg').count()).toBeGreaterThan(0);
+  await expect(page.locator('.drums__chip--repeat .drums__mini')).toHaveCount(0);
+
+  // Between the chord strip and the first stem row.
+  const chords = (await page.locator('.chords').boundingBox())!;
+  const strip = (await page.locator('.drums').boundingBox())!;
+  const firstStem = (await page.locator('.stem-row').first().boundingBox())!;
+  expect(strip.y).toBeGreaterThanOrEqual(chords.y + chords.height);
+  expect(strip.y + strip.height).toBeLessThanOrEqual(firstStem.y);
+
+  const shift = () => page.locator('.drums__track').evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).m41);
+  expect(await shift()).toBe(0);
+  await clickSeek(page, 0.5);
+  await expect.poll(shift).toBeLessThan(-1000);
+  await expect(page.locator('.drums__chip--active')).toHaveCount(1);
+});
+
+test('the drum sheet shows this bar and the next, as a grid or as notation', async ({ page }) => {
+  await expect.poll(() => page.locator('.drums__chip').count(), { timeout: 45_000 }).toBeGreaterThan(10);
+  await clickSeek(page, 0.5);
+  await page.getByRole('button', { name: /^Drum part/ }).click();
+  const sheet = page.getByRole('dialog', { name: 'Drums' });
+  await expect(sheet.locator('.chord-now__name')).toHaveText(/^Bar \d+$/);
+  await expect(sheet.locator('.drum-feel')).toHaveText(/^[34]\/4 · (Straight|Shuffle)$/);
+
+  const bars = sheet.locator('.drum-read__bar');
+  await expect(bars).toHaveCount(2);
+  await expect(bars.first().locator('.drum-read__caption')).toContainText('Now');
+  await expect(bars.nth(1).locator('.drum-read__caption')).toContainText('Next');
+  expect(await sheet.locator('.drum-grid__lane').count()).toBeGreaterThanOrEqual(6); // ≥ 3 drums × 2 bars
+  await expect(bars.first().locator('.drum-grid__count').first()).toHaveText('1');
+  expect(await bars.first().locator('.drum-grid__hit').count()).toBeGreaterThan(2);
+
+  await sheet.getByRole('button', { name: 'Notation' }).click();
+  await expect(sheet.locator('svg.notation')).toHaveCount(2);
+  expect(await sheet.locator('svg.notation').first().locator('.notation__head').count()).toBeGreaterThan(2);
+  await expect(sheet.locator('svg.notation').first().locator('.notation__line')).not.toHaveCount(0);
+
+  // The choice sticks.
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /^Drum part/ }).click();
+  await expect(sheet.locator('svg.notation')).toHaveCount(2);
+});
+
+test('the song map lists grooves and fills, and jumps to them', async ({ page }) => {
+  await expect.poll(() => page.locator('.drums__chip').count(), { timeout: 45_000 }).toBeGreaterThan(10);
+  await page.getByRole('button', { name: /^Drum part/ }).click();
+  const items = page.getByRole('dialog', { name: 'Drums' }).locator('.drum-map__item');
+  expect(await items.count()).toBeGreaterThan(2);
+  await expect(page.locator('.drum-map__item--groove .drum-map__count').first()).toHaveText(/^×\d+$/);
+
+  const target = page.locator('.drum-map__item--groove').nth(1);
+  await target.click();
+  const bars = (await target.locator('.drum-map__bars').textContent())!;
+  const first = Number(bars.split('–')[0]);
+  await expect(page.locator('.chord-now__name')).toHaveText(`Bar ${first}`);
+  await expect(target).toHaveClass(/is-now/);
+});
+
+test('the drum badge opens the metronome', async ({ page }) => {
+  await expect(page.locator('.drums__badge')).toBeVisible({ timeout: 45_000 });
+  await page.locator('.drums__badge').click();
+  await expect(page.getByRole('dialog', { name: 'Metronome' })).toBeVisible();
+});
+
+test('drums can be hidden from the song menu, and the choice sticks', async ({ page }) => {
+  await expect(page.locator('.drums')).toBeVisible();
+  await page.getByRole('button', { name: 'More options' }).click();
+  await page.getByRole('button', { name: 'Hide drums' }).click();
+  await expect(page.locator('.drums')).toHaveCount(0);
+  await expect(page.locator('.chords')).toBeVisible();
+
+  await page.reload();
+  await expect(page.locator('.transport__play')).toBeEnabled({ timeout: 45_000 });
+  await expect(page.locator('.drums')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'More options' }).click();
+  await page.getByRole('button', { name: 'Show drums' }).click();
+  await expect(page.locator('.drums')).toBeVisible();
+});
