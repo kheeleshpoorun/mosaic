@@ -28,7 +28,7 @@ export function engineState(page: Page) {
 
 export function syncReport(page: Page) {
   return page.evaluate(() =>
-    (window as unknown as { __mosaicEngine: { syncReport(): { sources: ({ rate: number } | null)[] } } }).__mosaicEngine.syncReport(),
+    (window as unknown as { __mosaicEngine: { syncReport(): { sources: ({ rate: number } | null)[]; musicDelay: number } } }).__mosaicEngine.syncReport(),
   );
 }
 

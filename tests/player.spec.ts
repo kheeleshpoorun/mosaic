@@ -193,6 +193,17 @@ test('pitch and speed controls', async ({ page }) => {
   await expect.poll(async () => (await syncReport(page)).sources.every((s) => !!s && Math.abs(s.rate - 0.95) < 1e-3)).toBe(true);
 });
 
+test('metronome is delayed to match the pitch shifter, and not when it is bypassed', async ({ page }) => {
+  expect((await syncReport(page)).musicDelay).toBe(0);
+  await page.getByRole('button', { name: 'Pitch and speed' }).click();
+  await page.getByRole('button', { name: 'Increase pitch' }).click();
+  // SoundTouch's measured processing delay (~0.1–0.15 s) shifts every click by the same amount.
+  await expect.poll(async () => (await syncReport(page)).musicDelay).toBeGreaterThan(0.05);
+  expect((await syncReport(page)).musicDelay).toBeLessThan(0.2);
+  await page.getByRole('button', { name: 'Decrease pitch' }).click();
+  await expect.poll(async () => (await syncReport(page)).musicDelay).toBe(0);
+});
+
 test('space bar toggles playback', async ({ page }) => {
   await page.keyboard.press('Space');
   await expect.poll(async () => (await engineState(page)).playing).toBe(true);

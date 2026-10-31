@@ -4,6 +4,7 @@ import type { SongSource, StemSource } from '../lib/types';
 import { Metronome, firstBeatAtOrAfter, type MetronomeSettings } from './metronome';
 import { enterPlaybackSession, leavePlaybackSession } from './audioSession';
 import { computePeaks } from './peaks';
+import { FALLBACK_PITCH_DELAY, measurePitchDelay } from './pitchDelay';
 
 /** Slider position that equals unity gain (Moises shows the thumb at ~75% by default). */
 export const DEFAULT_VOLUME = 0.75;
@@ -61,8 +62,11 @@ export class Engine {
   private limiter: DynamicsCompressorNode;
   /** Final limiter on music + metronome. A loud click briefly ducks the mix instead of clipping. */
   private output: DynamicsCompressorNode;
+  /** SoundTouch node while engaged (speed ≠ 1 or pitch ≠ 0), else null (bypassed). */
   private pitchNode: SoundTouchNode | null = null;
-  private pitchReady: Promise<void>;
+  private pitchReady: Promise<boolean>;
+  /** How late the music is heard because of SoundTouch (context seconds); 0 when bypassed. */
+  private musicDelay = 0;
   private metronome: Metronome;
   private timer: number | undefined;
   private listeners = new Set<() => void>();
@@ -121,11 +125,10 @@ export class Engine {
     };
 
     this.pitchReady = SoundTouchNode.register(this.ctx, processorUrl)
-      .then(() => {
-        this.pitchNode = new SoundTouchNode({ context: this.ctx });
-      })
+      .then(() => true)
       .catch((e) => {
         if (!this.disposed) console.warn('Pitch shifting unavailable', e);
+        return false;
       });
 
     void this.load(song);
@@ -190,8 +193,16 @@ export class Engine {
     return Math.min(this.anchorOffset + elapsed, this.state.duration);
   }
 
-  /** AudioContext time at which track time `t` is heard (valid while playing). */
+  /** AudioContext time at which track time `t` leaves the sources (valid while playing). */
   private toCtxTime = (t: number) => this.anchorTime + (t - this.anchorOffset) / this.state.speed;
+
+  /** AudioContext time at which track time `t` is heard, after SoundTouch's processing delay. */
+  private toHeardTime = (t: number) => this.toCtxTime(t) + this.musicDelay;
+
+  /** Track time currently coming out of the speakers (lags `position` while SoundTouch is engaged). */
+  private get heardPosition(): number {
+    return Math.max(0, this.position - this.musicDelay * this.state.speed);
+  }
 
   async play() {
     if (this.state.status !== 'ready' || this.state.playing) return;
@@ -235,6 +246,9 @@ export class Engine {
   /** (Re)creates every source and starts them all on the same audio frame at track time `offset`. */
   private startSources(offset: number) {
     this.stopSources();
+    // SoundTouch keeps whatever it had buffered (e.g. from before a pause or seek) and would play
+    // it first, pushing the music further behind the metronome. Start from an empty pipeline.
+    if (this.pitchNode) this.connectPitchNode();
     const when = this.ctx.currentTime + START_DELAY;
     for (const track of this.tracks) {
       if (!track.buffer || offset >= track.buffer.duration) continue;
@@ -272,7 +286,7 @@ export class Engine {
       this.set({ playing: false });
       return;
     }
-    this.metronome.schedule(this.toCtxTime, this.state.duration);
+    this.metronome.schedule(this.toHeardTime, this.state.duration);
   }
 
   /** Test/debug hook: per-stem start offsets and the shared start time. */
@@ -280,6 +294,7 @@ export class Engine {
     return {
       anchorTime: this.anchorTime,
       anchorOffset: this.anchorOffset,
+      musicDelay: this.musicDelay,
       sources: this.tracks.map((t) => (t.source ? { rate: t.source.playbackRate.value } : null)),
     };
   }
@@ -357,20 +372,51 @@ export class Engine {
   }
 
   private async updatePitchNode() {
-    await this.pitchReady;
-    const node = this.pitchNode;
-    if (!node || this.disposed) return;
+    if (!(await this.pitchReady) || this.disposed) return;
     const { speed, pitch } = this.state;
-    node.playbackRate.value = speed;
-    node.pitchSemitones.value = pitch;
-    // Bypass SoundTouch when it has nothing to do, for the cleanest sound.
+    // Bypass SoundTouch when it has nothing to do, for the cleanest sound (and no delay).
+    if (speed === 1 && pitch === 0) {
+      if (this.pitchNode) {
+        this.pitchNode.disconnect();
+        this.pitchNode = null;
+        this.limiter.disconnect();
+        this.limiter.connect(this.output);
+      }
+    } else if (!this.pitchNode) this.connectPitchNode();
+    else this.applyPitchParams(this.pitchNode);
+    void this.updateMusicDelay();
+  }
+
+  /** Routes the music through a new, empty SoundTouch node (replacing any current one). */
+  private connectPitchNode() {
+    this.pitchNode?.disconnect();
+    const node = new SoundTouchNode({ context: this.ctx });
+    this.applyPitchParams(node);
     this.limiter.disconnect();
-    node.disconnect();
-    if (speed === 1 && pitch === 0) this.limiter.connect(this.output);
-    else {
-      this.limiter.connect(node);
-      node.connect(this.output);
-    }
+    this.limiter.connect(node);
+    node.connect(this.output);
+    this.pitchNode = node;
+  }
+
+  private applyPitchParams(node: SoundTouchNode) {
+    node.playbackRate.value = this.state.speed;
+    node.pitchSemitones.value = this.state.pitch;
+  }
+
+  /** Delays the clicks by SoundTouch's processing delay so they stay on the beat. */
+  private async updateMusicDelay() {
+    const { speed, pitch } = this.state;
+    const engaged = !!this.pitchNode;
+    if (engaged && !this.musicDelay) this.setMusicDelay(FALLBACK_PITCH_DELAY);
+    const delay = engaged ? await measurePitchDelay(processorUrl, this.ctx.sampleRate, speed, pitch) : 0;
+    if (this.disposed || speed !== this.state.speed || pitch !== this.state.pitch) return;
+    this.setMusicDelay(delay);
+  }
+
+  private setMusicDelay(delay: number) {
+    if (delay === this.musicDelay) return;
+    this.musicDelay = delay;
+    if (this.state.playing) this.startMetronome();
   }
 
   // ---------- metronome ----------
@@ -383,7 +429,7 @@ export class Engine {
 
   private startMetronome() {
     this.metronome.configure(this.state.metronome);
-    if (this.state.playing) this.metronome.reset(this.position);
+    if (this.state.playing) this.metronome.reset(this.heardPosition);
   }
 
   /** Track time of the click nearest to `t` (tracked beats or fixed grid, offset applied). */
@@ -400,7 +446,7 @@ export class Engine {
 
   /** "Beat is here": shift the clicks so the nearest one lands on the current position. */
   alignBeatHere() {
-    const pos = this.position;
+    const pos = this.heardPosition;
     this.setMetronome({ offset: this.state.metronome.offset + (pos - this.nearestClick(pos)) });
   }
 
@@ -415,7 +461,7 @@ export class Engine {
    */
   setTempo(bpm: number) {
     const b = Math.max(30, Math.min(300, Math.round(bpm * 10) / 10));
-    const anchor = this.nearestClick(this.position);
+    const anchor = this.nearestClick(this.heardPosition);
     const period = 60 / b;
     this.setMetronome({ bpm: b, beats: null, offset: ((anchor % period) + period) % period });
   }
