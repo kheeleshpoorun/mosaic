@@ -55,6 +55,7 @@ src/lib/library.ts          Manifest → SongSource[]; shareUrl()
 src/lib/stemCache.ts        Library stems in Cache Storage (`mosaic-stems`): read-through cache with byte progress and
                             retries, download/remove a song, prune stems the library no longer has
 src/lib/serviceWorker.ts    Registers the service worker (production only) and announces a waiting update
+src/lib/install.ts          Install offer: keeps Chrome's beforeinstallprompt, detects iOS and standalone → InstallMode
 src/sw.js                   Service worker: precached app shell (cache-first, navigations → index.html), Google Fonts
                             stale-while-revalidate. Plain JS; never handles library/ or Range requests
 src/lib/analysisCache.ts    Cached beats/chords/drums per library song: versioned keys, shape-checked reads, clearAnalyses
@@ -80,7 +81,8 @@ src/audio/mixDown.ts        Sum buffers to mono + integer decimation (shared by 
 src/lib/chords.ts           Chord/key names (transposed, ♯/♭ spelled by key), Roman numerals, chord tones, guitar shapes
 src/lib/chordChart.ts       Chords → bars (chordChart, beat by beat, repeat signs) → song map of progressions. Pure, unit-tested
 src/audio/pitchDelay.ts     measurePitchDelay: SoundTouch's processing delay, measured offline per speed/pitch (cached)
-src/components/Home/        Home page: drop zone, Library and Imported lists, DownloadButton (save offline / remove)
+src/components/Home/        Home page: drop zone, Library and Imported lists, DownloadButton (save offline / remove),
+                            InstallCard (Install button, or iOS Share → Add to Home Screen hint)
 src/components/Player/      Header, ChordStrip (+ useChords, ChordSheet chart/map/shapes), DrumStrip (+ useDrums, DrumSheet,
                             DrumNotation), MiniPlayer (docked in sheets), timeline.ts (segmentAt/useStarts), StemRow, StemWave, SeekBar, Slider,
                             Transport, bottom sheets
@@ -121,6 +123,7 @@ design/                     Local Moises reference screenshots (git-ignored)
 - **Stems**: `Engine` reads library stems through `readCachedStem` (`stemCache.ts`): Cache Storage first, else the network (streamed for byte progress, retried with backoff unless the device is offline), then saved. Every opened library song is saved; the home page's download button saves one ahead of time, and its check mark removes it. **Imported songs are never cached.** The cache key is the stem URL, which carries `?v=<content hash>` from `library-plugin.ts`, so a re-encoded stem is fetched again and `pruneStemCache` (run at startup) drops the old copy. Never strip the `?v=`.
 - **Loading**: all stems download at once; only decoding is limited (`DECODE_CONCURRENCY`). The loader shows MB while downloading.
 - **Service worker** (`src/sw.js`, built by `sw-plugin.ts`, registered only in production): precaches every built file and public file except library audio, cache-first, with every navigation answered by the cached `index.html` so the app opens instantly on a slow or missing network. Matches use `ignoreVary` (module scripts/CSS carry an Origin header the precache didn't). A new version waits until the user taps Reload in `UpdateBanner`, so a deploy never swaps code mid-song. It never touches `library/` or Range requests.
+- **Install card** (home page, under the header): an Install button where the browser fired `beforeinstallprompt` (Chrome, Edge, Android), the Share → Add to Home Screen hint on iOS (no install API there), nothing anywhere else or once running standalone. Dismissing it is remembered as `mosaic:install-dismissed`. `watchInstall()` runs in `main.tsx` because the event can fire before React mounts.
 - Tests block service workers by default (`serviceWorkers: 'block'` in `playwright.config.ts`, so `page.route` sees every request); `tests/offline.spec.ts` opts in.
 
 ## UI rules

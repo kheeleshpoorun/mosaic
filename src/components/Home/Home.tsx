@@ -8,6 +8,7 @@ import type { SongSource } from '../../lib/types';
 import { Footer } from '../Footer';
 import { CloseIcon, LinkIcon, UploadIcon, WaveIcon } from '../icons';
 import { DownloadButton } from './DownloadButton';
+import { InstallCard } from './InstallCard';
 import { SongRow } from './SongRow';
 import { useSavedStems } from './useSavedStems';
 
@@ -83,6 +84,8 @@ export function Home({ library, imports, onOpen, onImport, onRemoveImport }: Pro
           Mosaic
         </div>
       </header>
+
+      <InstallCard />
 
       <button
         type="button"

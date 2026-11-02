@@ -1619,6 +1619,63 @@ button:disabled {
   color: var(--on-accent);
 }
 
+/* install card: Install button (Chrome/Android) or Share → Add to Home Screen hint (iOS) */
+.install {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 12px 4px 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  animation: fade 0.2s ease-out;
+}
+
+.install__mark {
+  flex-shrink: 0;
+}
+
+.install__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.install__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.install__hint {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.install__hint strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.install__share {
+  vertical-align: -2px;
+  color: var(--text);
+}
+
+.install__button {
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 0 16px;
+  font-size: 14px;
+}
+
+.install__close {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
 .dropzone {
   display: flex;
   flex-direction: column;
