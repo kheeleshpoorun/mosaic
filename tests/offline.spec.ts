@@ -1,5 +1,10 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { SONG_NAME, SONG_SLUG, STEM_COUNT, openSong } from './helpers';
+
+/** The built worker that `vite preview` serves. */
+const SW_FILE = path.resolve(import.meta.dirname, '../dist/sw.js');
 
 /** URLs saved in the app's stem cache. */
 function savedStemUrls(page: Page) {
@@ -64,6 +69,45 @@ test.describe('service worker', () => {
     await page.reload();
     await expect(page.locator('.player__title')).toHaveText(SONG_NAME);
     await expect(page.locator('.transport__play')).toBeEnabled({ timeout: 45_000 });
+  });
+
+  test('the cached page only loads files the same cache holds', async ({ page }) => {
+    await page.goto('./');
+    await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller), { timeout: 15_000 }).toBe(true);
+    const missing = await page.evaluate(async () => {
+      const key = (await caches.keys()).find((k) => k.startsWith('mosaic-shell-'))!;
+      const cache = await caches.open(key);
+      const html = await (await cache.match('/mosaic/index.html'))!.text();
+      const refs = [...html.matchAll(/(?:src|href)="(\/mosaic\/assets\/[^"]+)"/g)].map((m) => m[1]);
+      const out: string[] = [];
+      for (const ref of refs) if (!(await cache.match(ref, { ignoreVary: true }))) out.push(ref);
+      return { refs: refs.length, out };
+    });
+    expect(missing.refs).toBeGreaterThan(0);
+    expect(missing.out).toEqual([]);
+  });
+
+  test('an update replaces a broken shell without waiting for the Reload banner', async ({ page }) => {
+    await page.goto('./');
+    await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller), { timeout: 15_000 }).toBe(true);
+    // A shell whose page points at a script that is gone (a stale index.html saved by an earlier version).
+    await page.evaluate(async () => {
+      const cache = await caches.open('mosaic-shell-stale');
+      await cache.put('/mosaic/index.html', new Response('<script type="module" src="/mosaic/assets/gone.js"></script>'));
+    });
+    // The next deploy. page.route never sees the browser's fetch of the worker script, so change the served file.
+    const original = fs.readFileSync(SW_FILE, 'utf8');
+    fs.writeFileSync(SW_FILE, `${original}\n// next deploy\n`);
+    try {
+      await page.evaluate(async () => (await navigator.serviceWorker.getRegistration())!.update());
+      await expect
+        .poll(() => page.evaluate(async () => (await caches.keys()).includes('mosaic-shell-stale')), { timeout: 45_000 })
+        .toBe(false);
+    } finally {
+      fs.writeFileSync(SW_FILE, original);
+    }
+    await expect.poll(() => page.evaluate(async () => !!(await navigator.serviceWorker.getRegistration())?.waiting)).toBe(false);
+    await expect(page.getByText('Drop your stems here')).toBeVisible();
   });
 
   test('the manifest makes the app installable', async ({ page }) => {

@@ -7,8 +7,25 @@
 const SHELL = `mosaic-shell-${VERSION}`;
 const FONTS = 'mosaic-fonts';
 
+// Set when the version in use is broken: its page can't run, so it never shows the Reload banner.
+let recovering = false;
+
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(SHELL).then((cache) => cache.addAll(PRECACHE)));
+  event.waitUntil(
+    (async () => {
+      recovering = await anyShellBroken();
+      const cache = await caches.open(SHELL);
+      // cache: 'reload' skips the HTTP cache. GitHub Pages serves index.html with max-age=600, and a
+      // stale copy points at scripts the new deploy no longer has: a white page on every launch.
+      await cache.addAll(PRECACHE.map((url) => new Request(url, { cache: 'reload' })));
+      if (await shellBroken(cache)) {
+        // A deploy still propagating; keep the working version and try again on the next update.
+        await caches.delete(SHELL);
+        throw new Error('index.html refers to files missing from the precache');
+      }
+      if (recovering) await self.skipWaiting();
+    })(),
+  );
 });
 
 self.addEventListener('activate', (event) => {
@@ -18,9 +35,29 @@ self.addEventListener('activate', (event) => {
         if (key.startsWith('mosaic-shell-') && key !== SHELL) await caches.delete(key);
       }
       await self.clients.claim();
+      if (recovering) {
+        for (const client of await self.clients.matchAll({ type: 'window' })) void client.navigate(client.url);
+      }
     })(),
   );
 });
+
+/** True when the cached index.html loads a script or stylesheet that the same cache lacks. */
+async function shellBroken(cache) {
+  const page = await cache.match(`${BASE}index.html`);
+  if (!page) return true;
+  for (const [, path] of (await page.text()).matchAll(/(?:src|href)="([^"]+)"/g)) {
+    if (path.startsWith(`${BASE}assets/`) && !(await cache.match(path, { ignoreVary: true }))) return true;
+  }
+  return false;
+}
+
+async function anyShellBroken() {
+  for (const key of await caches.keys()) {
+    if (key.startsWith('mosaic-shell-') && (await shellBroken(await caches.open(key)))) return true;
+  }
+  return false;
+}
 
 // A new version waits until the page asks for it (see src/lib/serviceWorker.ts), so a deploy never
 // swaps the code under a song that is playing.
