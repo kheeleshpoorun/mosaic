@@ -283,3 +283,12 @@ export const LoopIcon = (p: IconProps) => (
     <path d="M20 13v2a3 3 0 0 1-3 3H4" />
   </Svg>
 );
+
+/** Restart song from 0:00 icon. */
+export const ReplayIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9" />
+    <path d="M4.5 4.5V9H9" />
+  </Svg>
+);
+

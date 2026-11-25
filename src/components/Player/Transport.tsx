@@ -1,5 +1,5 @@
 import type { Engine, EngineState } from '../../audio/Engine';
-import { ForwardIcon, MetronomeIcon, PauseIcon, PitchIcon, PlayIcon, RewindIcon } from '../icons';
+import { ForwardIcon, MetronomeIcon, PauseIcon, PitchIcon, PlayIcon, ReplayIcon, RewindIcon } from '../icons';
 
 interface Props {
   engine: Engine;
@@ -20,6 +20,9 @@ export function Transport({ engine, state, onMetronome, onPitch }: Props) {
         onClick={onMetronome}
       >
         <MetronomeIcon size={30} />
+      </button>
+      <button type="button" className="icon-button transport__side" aria-label="Replay" title="Replay" disabled={!ready} onClick={() => engine.replay()}>
+        <ReplayIcon size={26} />
       </button>
       <button type="button" className="icon-button" aria-label="Back 5 seconds" disabled={!ready} onClick={() => engine.skip(-5)}>
         <RewindIcon size={36} />

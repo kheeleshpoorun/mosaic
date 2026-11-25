@@ -49,6 +49,8 @@ export interface BassNote {
   duration: number;
   /** Velocity 0.4 .. 1. */
   velocity: number;
+  /** Legato glissando / slide into this note along the string ('up' = /, 'down' = \). */
+  slide?: 'up' | 'down';
 }
 
 export interface BassBar {
@@ -156,10 +158,10 @@ export function analyzeBass({ samples, sampleRate, beats, downbeat, meter = 4, d
   }
 
   const onset = onsetEnvelope(rms, hiRms, refRms, refHi);
-  const emissions = yinEmissions(lp, cumSq, rms, refRms, sampleRate, hop, frames);
+  const { emissions, frameClarity } = yinEmissions(lp, cumSq, rms, refRms, sampleRate, hop, frames);
   const frameMidi = viterbiPitch(emissions, onset);
 
-  const bars = extractBarNotes(barWindows, frameMidi, rms, onset, refRms, fps, division, duration);
+  const bars = extractBarNotes(barWindows, frameMidi, emissions, frameClarity, rms, onset, refRms, fps, division, duration);
   const assigned = assignBassFingering(bars, 0, 5, division);
   labelBassBars(assigned, division);
   return { meter, division, swing, bars: assigned };
@@ -248,7 +250,7 @@ function yinEmissions(
   sampleRate: number,
   hop: number,
   frames: number,
-): Float64Array[] {
+): { emissions: Float64Array[]; frameClarity: Float32Array } {
   const desiredW = Math.round(sampleRate * 0.056);
   const tauMin = Math.max(2, Math.floor(sampleRate / MAX_FREQ));
   const tauMax = Math.min(Math.ceil(sampleRate / MIN_FREQ), Math.max(tauMin + 2, Math.floor(lp.length / 2)));
@@ -266,6 +268,7 @@ function yinEmissions(
   const cmndf = new Float64Array(tauMax + 2);
 
   const emissions: Float64Array[] = [];
+  const frameClarity = new Float32Array(frames);
   for (let f = 0; f < frames; f++) {
     const em = new Float64Array(STATES).fill(-0.5);
     em[UNVOICED] = 0.24;
@@ -315,6 +318,7 @@ function yinEmissions(
       cmndf[tau] = runningSum > 0 ? (d * tau) / runningSum : 1;
     }
 
+    let bestClarity = 0;
     for (let tau = tauMin; tau < maxTau; tau++) {
       const v = cmndf[tau];
       if (v >= CMNDF_MAX || v > cmndf[tau - 1] || v > cmndf[tau + 1]) continue;
@@ -324,7 +328,8 @@ function yinEmissions(
       const tauHat = tau + delta;
       if (tauHat <= 0) continue;
 
-      let clarity = Math.max(0, 1 - v);
+      const rawClarity = Math.max(0, 1 - v);
+      let clarity = rawClarity;
       // Subharmonic guard: penalize period multiples (2*T0, 3*T0) whose half/third period dips just as low.
       const halfLag = Math.round(tau / 2);
       if (halfLag >= tauMin) {
@@ -349,17 +354,19 @@ function yinEmissions(
       const err = Math.abs(midiFloat - m);
       if (m < BASS_MIN_MIDI || m > BASS_MAX_MIDI || err > 0.45) continue;
 
+      if (rawClarity > bestClarity) bestClarity = rawClarity;
       const score = clarity * (1 - 0.5 * err) + (m >= 28 && m <= 52 ? 0.02 : 0);
       const idx = m - BASS_MIN_MIDI;
       if (score > em[idx]) em[idx] = score;
     }
+    frameClarity[f] = bestClarity;
 
     // Quiet frames favor UNVOICED while keeping mild pitched emissions if sustained.
     if (rms[f] < 0.08 * refRms) {
       for (let s = 0; s < UNVOICED; s++) em[s] -= 0.45;
     }
   }
-  return emissions;
+  return { emissions, frameClarity };
 }
 
 // ---------- frame-level Viterbi ----------
@@ -501,6 +508,9 @@ interface RawNoteEvent {
   start: number;
   end: number;
   midi: number;
+  peakStr: number;
+  attackFrame: number;
+  slide?: 'up' | 'down';
 }
 
 interface QuantEvent {
@@ -510,6 +520,7 @@ interface QuantEvent {
   velocity: number;
   endFrame: number;
   peakStr: number;
+  slide?: 'up' | 'down';
 }
 
 /** Greedy non-maximum suppression over the onset envelope, tracking each peak's rising-edge start. */
@@ -688,7 +699,19 @@ function quantizeOnsets(events: QuantEvent[], totalSteps: number, stepsPerBar: n
     const ev = events[i];
     const prev = dedup[dedup.length - 1];
     if (prev && prev.g === g) {
-      if (ev.v - ev.u > prev.v - prev.u) dedup[dedup.length - 1] = { ...ev, g };
+      if (ev.v - ev.u > prev.v - prev.u) dedup[dedup.length - 1] = { ...ev, g, slide: ev.slide ?? prev.slide };
+      else if (ev.slide && !prev.slide) prev.slide = ev.slide;
+    } else if (
+      prev &&
+      g === prev.g + 1 &&
+      ev.midi === prev.midi &&
+      !ev.slide &&
+      ev.peakStr < 2.1 * reAttackThreshold &&
+      (i + 1 >= count || events[i + 1].midi !== ev.midi)
+    ) {
+      prev.v = Math.max(prev.v, ev.v);
+      prev.endFrame = Math.max(prev.endFrame, ev.endFrame);
+      if (ev.velocity > prev.velocity) prev.velocity = ev.velocity;
     } else {
       dedup.push({ ...ev, g });
     }
@@ -699,6 +722,8 @@ function quantizeOnsets(events: QuantEvent[], totalSteps: number, stepsPerBar: n
 function extractBarNotes(
   windows: BarWindow[],
   frameMidi: Int8Array,
+  emissions: Float64Array[],
+  frameClarity: Float32Array,
   rms: Float32Array,
   onset: Float32Array,
   refRms: number,
@@ -761,13 +786,29 @@ function extractBarNotes(
   let evMidi = -1;
   let offStreak = 0;
 
+  const findAttackPeak = (startFrame: number, endFrame: number) => {
+    let bestPeakStrength = 0;
+    let attackFrame = startFrame;
+    const maxStart = Math.min(frames - 1, Math.min(endFrame - 1, startFrame + 3));
+    const maxPeak = Math.max(startFrame, endFrame - 1);
+    for (let k = Math.max(0, startFrame - 2); k <= maxStart; k++) {
+      const pi = peakAtFrame[k];
+      if (pi >= 0 && peaks[pi].peak <= maxPeak && peaks[pi].peak <= startFrame + 4 && peaks[pi].strength > bestPeakStrength) {
+        bestPeakStrength = peaks[pi].strength;
+        attackFrame = peaks[pi].start;
+      }
+    }
+    return { peakStr: bestPeakStrength, attackFrame };
+  };
+
   const closeEvent = (endFrame: number) => {
     if (!active || endFrame <= evStart) {
       active = false;
       return;
     }
     const actualEnd = Math.max(evStart + 1, endFrame - offStreak);
-    rawEvents.push({ start: evStart, end: actualEnd, midi: evMidi });
+    const { peakStr, attackFrame } = findAttackPeak(evStart, actualEnd);
+    rawEvents.push({ start: evStart, end: actualEnd, midi: evMidi, peakStr, attackFrame });
     active = false;
     offStreak = 0;
   };
@@ -812,26 +853,270 @@ function extractBarNotes(
   }
   if (active) closeEvent(frames);
 
-  // Absorb transient attack/release pitch wobbles and build continuous-grid events.
   const minHardFrames = Math.max(3, Math.round(0.35 * stepFrames));
-  const minUnpluckedFrames = Math.max(4, Math.round(0.55 * stepFrames));
+  const minUnpluckedFrames = Math.max(8, Math.round(1.05 * stepFrames));
+  const maxSlidePassFrames = Math.max(15, Math.round(0.85 * stepFrames));
+  const maxSingleBridgeFrames = Math.max(22, Math.round(1.25 * stepFrames));
+  const minSlideTargetFrames = Math.max(15, Math.round(0.85 * stepFrames));
+
+  // Pass 1: Remove 1-2 frame unplucked subharmonic/octave blips that split continuous slides or plateaus.
+  for (let i = 1; i + 1 < rawEvents.length; i++) {
+    const prev = rawEvents[i - 1];
+    const cur = rawEvents[i];
+    const next = rawEvents[i + 1];
+    const curLen = cur.end - cur.start;
+    if (
+      curLen <= 2 &&
+      cur.peakStr < reAttackThreshold &&
+      cur.start - prev.end <= 1 &&
+      next.start - cur.end <= 1 &&
+      Math.abs(cur.midi - prev.midi) >= 7 &&
+      Math.abs(cur.midi - next.midi) >= 7 &&
+      Math.abs(next.midi - prev.midi) <= 3
+    ) {
+      prev.end = next.start;
+      rawEvents.splice(i, 1);
+      if (prev.midi === next.midi && next.peakStr < reAttackThreshold) {
+        prev.end = next.end;
+        rawEvents.splice(i, 1);
+      }
+      i--;
+    }
+  }
+
+  // Pass 2: Merge 1-3 frame attack-transient pitch scoops or unplucked micro-blips into adjacent plateaus.
+  for (let i = 0; i < rawEvents.length; i++) {
+    const cur = rawEvents[i];
+    const next = rawEvents[i + 1];
+    const prev = i > 0 ? rawEvents[i - 1] : undefined;
+    const curLen = cur.end - cur.start;
+    if (curLen > 3) continue;
+    if (
+      next &&
+      next.start - cur.end <= 1 &&
+      next.end - next.start >= Math.max(4, minHardFrames) &&
+      (next.peakStr >= 0.26 || Math.abs(next.midi - cur.midi) <= 2 || Math.abs(next.midi - cur.midi) === 12)
+    ) {
+      next.start = cur.start;
+      if (cur.peakStr > next.peakStr) {
+        next.peakStr = cur.peakStr;
+        next.attackFrame = cur.attackFrame;
+      }
+      rawEvents.splice(i, 1);
+      i--;
+      continue;
+    }
+    if (cur.peakStr < 0.26 && prev && cur.start - prev.end <= 2) {
+      prev.end = cur.end;
+      rawEvents.splice(i, 1);
+      i--;
+    }
+  }
+
+  // Pass 2.5: Absorb unplucked monotonic release tails at the end of long held notes when followed
+  // by a brief mute/re-pluck, preserving slide direction when the next note continues the motion.
+  for (let i = 0; i + 1 < rawEvents.length; i++) {
+    const origin = rawEvents[i];
+    const originLen = origin.end - origin.start;
+    if (originLen < Math.round(1.5 * stepFrames)) continue;
+    const first = rawEvents[i + 1];
+    if (first.start - origin.end > 1 || first.peakStr >= 0.26 || first.midi === origin.midi) continue;
+    const dir = first.midi > origin.midi ? 1 : -1;
+    let k = i + 1;
+    while (k < rawEvents.length) {
+      const prev = rawEvents[k - 1];
+      const cur = rawEvents[k];
+      const curLen = cur.end - cur.start;
+      if (cur.start - prev.end > 2 || cur.peakStr >= 0.26 || curLen > Math.round(0.75 * stepFrames)) break;
+      const stepDiff = (cur.midi - prev.midi) * dir;
+      if (stepDiff >= 1 && stepDiff <= 3) {
+        k++;
+        continue;
+      }
+      // Tiny rebound frame right at finger lift
+      if (curLen <= 2 && Math.abs(cur.midi - prev.midi) <= 2) {
+        k++;
+        continue;
+      }
+      break;
+    }
+    if (k === i + 1) continue;
+    const after = rawEvents[k];
+    // Only treat as a release tail if there is no contiguous sustained arrival plateau (Pass 3 handles those).
+    const continuesContiguously =
+      after && after.start - rawEvents[k - 1].end <= 2 && (after.midi - origin.midi) * dir >= 2;
+    if (continuesContiguously) continue;
+
+    if (
+      after &&
+      after.start - rawEvents[k - 1].end <= Math.round(0.8 * stepFrames) &&
+      after.end - after.start >= minHardFrames &&
+      (after.midi - origin.midi) * dir >= 2
+    ) {
+      after.slide = dir > 0 ? 'up' : 'down';
+    }
+    origin.end = rawEvents[k - 1].end;
+    rawEvents.splice(i + 1, k - (i + 1));
+  }
+
+  // Pass 3: Detect monotonic glissando / slide chains and collapse unplucked intermediate passing semitones.
+  const slideOriginKeep = new Uint8Array(rawEvents.length);
+  for (let i = 0; i + 1 < rawEvents.length; i++) {
+    const origin = rawEvents[i];
+    const originLen = origin.end - origin.start;
+    const validOrigin = originLen >= minHardFrames || (originLen >= 4 && origin.peakStr >= reAttackThreshold);
+    if (!validOrigin) continue;
+
+    const first = rawEvents[i + 1];
+    if (first.start - origin.end > 2 || first.midi === origin.midi) continue;
+    const dir = first.midi > origin.midi ? 1 : -1;
+
+    let targetIdx = -1;
+    let k = i + 1;
+    while (k < rawEvents.length) {
+      const prev = rawEvents[k - 1];
+      const cur = rawEvents[k];
+      const maxGap = k >= i + 2 ? 4 : 2;
+      if (cur.start - prev.end > maxGap) break;
+      const stepDiff = (cur.midi - prev.midi) * dir;
+      const totalDiff = (cur.midi - origin.midi) * dir;
+      const curLen = cur.end - cur.start;
+      const isSustainedTarget =
+        curLen >= minSlideTargetFrames || (cur.peakStr >= reAttackThreshold && curLen >= minUnpluckedFrames);
+
+      if (stepDiff >= 1 && stepDiff <= 4) {
+        const nextEv = rawEvents[k + 1];
+        const isSingleStepBridge =
+          k === i + 1 &&
+          cur.peakStr < reAttackThreshold &&
+          curLen <= maxSingleBridgeFrames &&
+          !!nextEv &&
+          nextEv.start - cur.end <= 4 &&
+          (nextEv.midi - cur.midi) * dir >= 1 &&
+          (nextEv.midi - cur.midi) * dir <= 2 &&
+          nextEv.end - nextEv.start >= Math.round(1.8 * stepFrames);
+
+        if (isSustainedTarget && !isSingleStepBridge) {
+          if (k >= i + 2 && totalDiff >= 2) {
+            targetIdx = k;
+            break;
+          }
+          // Direct 1-step legato slide between two sustained notes without a fresh pluck attack.
+          if (
+            k === i + 1 &&
+            totalDiff >= 1 &&
+            totalDiff <= 4 &&
+            originLen >= Math.round(0.8 * stepFrames) &&
+            curLen >= Math.round(1.1 * stepFrames) &&
+            cur.peakStr < 0.72 * reAttackThreshold
+          ) {
+            targetIdx = k;
+            break;
+          }
+        }
+        if (cur.peakStr < reAttackThreshold && (curLen <= maxSlidePassFrames || isSingleStepBridge)) {
+          k++;
+          continue;
+        }
+        break;
+      }
+
+      // Allow a multi-step glissando (k >= i + 2) to land on an accented target plateau even if the
+      // last passing frame already reached target.midi (stepDiff === 0) or overshot by 1-2 semitones.
+      if (k >= i + 2 && isSustainedTarget && totalDiff >= 2 && stepDiff >= -2 && stepDiff <= 4) {
+        targetIdx = k;
+      }
+      break;
+    }
+
+    if (targetIdx > i) {
+      const target = rawEvents[targetIdx];
+      target.slide = dir > 0 ? 'up' : 'down';
+      slideOriginKeep[i] = 1;
+
+      if (targetIdx > i + 1) {
+        const glideStart = rawEvents[i + 1].start;
+        const glideEnd = target.start;
+        origin.end = glideStart;
+        if (target.peakStr < reAttackThreshold && glideEnd - glideStart <= Math.round(2.2 * stepFrames)) {
+          // If a compact pickup glide crosses a beat boundary (e.g. into Beat 1), align arrival with the beat.
+          const uOrigin = timeToStep(Math.max(0, origin.attackFrame / fps));
+          const uGlideStart = timeToStep(Math.max(0, glideStart / fps));
+          const uGlideEnd = timeToStep(Math.max(0, glideEnd / fps));
+          const nextBeatStep = Math.ceil((Math.round(uOrigin) + 0.5) / division) * division;
+          if (nextBeatStep >= uGlideStart - 0.35 && nextBeatStep <= uGlideEnd + 0.25) {
+            target.attackFrame = Math.round(0.5 * (glideStart + glideEnd));
+            target.start = target.attackFrame;
+          }
+        }
+        rawEvents.splice(i + 1, targetIdx - i - 1);
+        slideOriginKeep.copyWithin(i + 1, targetIdx);
+      }
+    }
+  }
+
+  // Pass 4: Absorb post-slide remaining attack pitch-scoops / transient subharmonic locks and
+  // unplucked decaying release sags so busy plucking doesn't split single notes into 16th chatter.
+  const meanEventRms = (s: number, e: number) => {
+    let sum = 0;
+    for (let f = s; f < e; f++) sum += rms[f];
+    return sum / Math.max(1, e - s);
+  };
+  const maxScoopFrames = Math.min(8, Math.max(4, Math.round(0.6 * stepFrames)));
+  for (let i = 0; i < rawEvents.length; i++) {
+    const cur = rawEvents[i];
+    const next = rawEvents[i + 1];
+    if (!next || slideOriginKeep[i] || cur.slide || next.slide) continue;
+    const curLen = cur.end - cur.start;
+    const nextLen = next.end - next.start;
+    const semi = Math.abs(next.midi - cur.midi);
+    if (
+      curLen <= maxScoopFrames &&
+      next.start - cur.end <= 2 &&
+      nextLen >= Math.max(curLen + 2, minHardFrames) &&
+      next.peakStr < reAttackThreshold &&
+      (semi <= 2 || semi === 12)
+    ) {
+      next.start = cur.start;
+      if (cur.peakStr > next.peakStr) {
+        next.peakStr = cur.peakStr;
+        next.attackFrame = cur.attackFrame;
+      }
+      rawEvents.splice(i, 1);
+      slideOriginKeep.copyWithin(i, i + 1);
+      i--;
+    }
+  }
+
+  for (let i = 1; i < rawEvents.length; i++) {
+    const prev = rawEvents[i - 1];
+    const cur = rawEvents[i];
+    if (slideOriginKeep[i] || cur.slide) continue;
+    const curLen = cur.end - cur.start;
+    const prevLen = prev.end - prev.start;
+    if (cur.start - prev.end > 2 || curLen > Math.round(1.15 * stepFrames)) continue;
+    if (cur.peakStr >= 0.85 * reAttackThreshold) continue;
+    const prevMean = meanEventRms(prev.start, prev.end);
+    const curMean = meanEventRms(cur.start, cur.end);
+    const tailDrop = curLen >= 2 && rms[cur.end - 1] < 0.6 * rms[cur.start];
+    if (curMean < 0.72 * prevMean || (prevLen >= Math.round(0.8 * stepFrames) && tailDrop && Math.abs(cur.midi - prev.midi) <= 3)) {
+      prev.end = cur.end;
+      rawEvents.splice(i, 1);
+      slideOriginKeep.copyWithin(i, i + 1);
+      i--;
+    }
+  }
+
+  // Absorb remaining transient attack/release pitch wobbles and build continuous-grid events.
   const events: QuantEvent[] = [];
 
   for (let i = 0; i < rawEvents.length; i++) {
     const ev = rawEvents[i];
     const len = ev.end - ev.start;
+    const bestPeakStrength = ev.peakStr;
+    const attackFrame = ev.attackFrame;
 
-    let bestPeakStrength = 0;
-    let attackFrame = ev.start;
-    for (let k = Math.max(0, ev.start - 2); k <= Math.min(frames - 1, ev.start + 3); k++) {
-      const pi = peakAtFrame[k];
-      if (pi >= 0 && peaks[pi].strength > bestPeakStrength) {
-        bestPeakStrength = peaks[pi].strength;
-        attackFrame = peaks[pi].start;
-      }
-    }
-
-    if (len < minHardFrames || (len < minUnpluckedFrames && bestPeakStrength < 0.26)) {
+    if (!slideOriginKeep[i] && (len < minHardFrames || (len < minUnpluckedFrames && bestPeakStrength < 0.26))) {
       const prev = events[events.length - 1];
       const next = rawEvents[i + 1];
       if (prev && ev.start - prev.endFrame <= 1 && bestPeakStrength < 0.26) {
@@ -846,20 +1131,63 @@ function extractBarNotes(
     }
 
     const prev = events[events.length - 1];
-    if (prev && prev.midi === ev.midi && ev.start - prev.endFrame <= 2 && bestPeakStrength < reAttackThreshold) {
-      prev.endFrame = ev.end;
-      prev.v = timeToStep(Math.min(duration, ev.end / fps));
-      continue;
+    if (prev && prev.midi === ev.midi && !ev.slide) {
+      const gap = ev.start - prev.endFrame;
+      if (gap <= 2 && bestPeakStrength < reAttackThreshold) {
+        prev.endFrame = ev.end;
+        prev.v = timeToStep(Math.min(duration, ev.end / fps));
+        continue;
+      }
+      // Suppress 16th-note double-triggers on the same pitch unless separated by a clear amplitude dip and strong re-pluck.
+      if (gap <= Math.round(0.45 * stepFrames)) {
+        const uCur = timeToStep(Math.max(0, attackFrame / fps));
+        if (uCur - prev.u < 1.45) {
+          let minBetween = Infinity;
+          const dipLo = Math.max(0, Math.min(prev.endFrame, ev.start) - 2);
+          const dipHi = Math.min(frames - 1, Math.max(prev.endFrame, ev.start) + 1);
+          for (let f = dipLo; f <= dipHi; f++) if (rms[f] < minBetween) minBetween = rms[f];
+          const prevPeak = (prev.velocity * prev.velocity) * refRms;
+          if (bestPeakStrength < 1.45 * reAttackThreshold || minBetween > 0.68 * prevPeak) {
+            prev.endFrame = ev.end;
+            prev.v = timeToStep(Math.min(duration, ev.end / fps));
+            continue;
+          }
+        }
+      }
     }
 
     let rmsSum = 0;
     let peakRms = 0;
+    let claritySum = 0;
+    let maxClarity = 0;
+    let clearFrames = 0;
+    let maxPitchEm = -1;
+    let pitchSupportFrames = 0;
+    const stateIdx = ev.midi - BASS_MIN_MIDI;
     const bodyEnd = Math.min(ev.end, ev.start + Math.max(4, Math.round(0.08 * fps)));
     for (let f = ev.start; f < ev.end; f++) {
       rmsSum += rms[f];
       if (f < bodyEnd && rms[f] > peakRms) peakRms = rms[f];
+      const c = frameClarity[f];
+      claritySum += c;
+      if (c > maxClarity) maxClarity = c;
+      if (c >= 0.78) clearFrames++;
+      const pem = emissions[f][stateIdx];
+      if (pem > maxPitchEm) maxPitchEm = pem;
+      if (pem >= 0.72) pitchSupportFrames++;
     }
-    if (rmsSum / len < attackFloor) continue;
+    const meanRms = rmsSum / Math.max(1, len);
+    const meanClarity = claritySum / Math.max(1, len);
+    if (meanRms < (ev.slide ? releaseFloor : attackFloor)) continue;
+    // Reject percussive finger-mute thumps, rake ghosts, and unpitched bleed lacking clear YIN periodicity on ev.midi.
+    if (!slideOriginKeep[i]) {
+      if (maxClarity < 0.7 || maxPitchEm < 0.5) continue;
+      if (clearFrames < 2 && meanClarity < 0.74 && (!ev.slide || maxClarity < 0.75)) continue;
+      if (len <= Math.round(1.3 * stepFrames) && !ev.slide) {
+        if (maxPitchEm < 0.84 || pitchSupportFrames < Math.max(3, Math.ceil(0.45 * len))) continue;
+      }
+      if (ev.midi < 28 && len < Math.round(1.15 * stepFrames) && (meanClarity < 0.82 || meanRms < 0.38 * refRms)) continue;
+    }
 
     const attackTime = attackFrame / fps;
     const endTime = ev.end / fps;
@@ -870,7 +1198,7 @@ function extractBarNotes(
     if (u < -0.55 || u > totalSteps - 0.45) continue;
 
     const velocity = Math.max(0.4, round(Math.min(1, Math.sqrt(peakRms / refRms)), 10));
-    events.push({ midi: ev.midi, u, v, velocity, endFrame: ev.end, peakStr: bestPeakStrength });
+    events.push({ midi: ev.midi, u, v, velocity, endFrame: ev.end, peakStr: bestPeakStrength, slide: ev.slide });
   }
 
   const quantized = quantizeOnsets(events, totalSteps, stepsPerBar, division, reAttackThreshold);
@@ -914,6 +1242,7 @@ function extractBarNotes(
       fret: 0,
       duration: Math.max(1, endG - ev.g),
       velocity: ev.velocity,
+      ...(ev.slide ? { slide: ev.slide } : {}),
     });
   }
 
@@ -976,8 +1305,8 @@ function buildFingeringStates(midi: number, strings: BassStringCount, maxOpenPos
     } else {
       let base = f <= 7 ? 0.025 * (f - 1) : f <= 12 ? 0.15 + 0.08 * (f - 7) : 0.55 + 0.28 * (f - 12);
       if (s === 4 && f > 5) base += f <= 7 ? 0.08 * (f - 5) : 0.16 + 0.45 * (f - 7);
-      if (s === 3 && f > 9) base += 0.12 * (f - 9);
-      if (s === 2 && f > 11) base += 0.1 * (f - 11);
+      if (s === 3 && f > 9) base += 0.22 * (f - 9);
+      if (s === 2 && f > 11) base += 0.12 * (f - 11);
 
       const minPos = Math.max(1, f - 3);
       const maxPos = Math.min(MAX_HAND_POS, f);
@@ -1017,6 +1346,7 @@ export function assignBassFingering(bars: BassBar[], pitchShift = 0, strings: Ba
   const flatAbsStep: number[] = [];
   const flatDur: number[] = [];
   const flatMidi: number[] = [];
+  const flatSlide: ('up' | 'down' | undefined)[] = [];
   let maxNeededFret = 5;
   let barStepOffset = 0;
 
@@ -1029,6 +1359,7 @@ export function assignBassFingering(bars: BassBar[], pitchShift = 0, strings: Ba
       flatAbsStep.push(barStepOffset + n.step);
       flatDur.push(n.duration);
       flatMidi.push(midi);
+      flatSlide.push(n.slide);
       const minFretForMidi = Math.max(0, midi - BASS_TUNING[0]);
       if (minFretForMidi > maxNeededFret) maxNeededFret = minFretForMidi;
     });
@@ -1052,6 +1383,12 @@ export function assignBassFingering(bars: BassBar[], pitchShift = 0, strings: Ba
   }
 
   let prevDp = Float64Array.from(states[0].c);
+  if (flatSlide[0]) {
+    for (let j = 0; j < states[0].len; j++) {
+      if (states[0].f[j] === 0) prevDp[j] += 6.0;
+      else if (flatSlide[0] === 'up' && states[0].f[j] < 2) prevDp[j] += 2.0;
+    }
+  }
   const back: Int16Array[] = new Array(count);
   back[0] = new Int16Array(states[0].len).fill(-1);
 
@@ -1060,6 +1397,7 @@ export function assignBassFingering(bars: BassBar[], pitchShift = 0, strings: Ba
     const cur = states[i];
     const midiA = flatMidi[i - 1];
     const midiB = flatMidi[i];
+    const slideB = flatSlide[i];
     const sameMidi = midiA === midiB;
     const isOctInterval = Math.abs(midiB - midiA) === 12;
     const stepGap = Math.max(1, flatAbsStep[i] - flatAbsStep[i - 1]);
@@ -1081,6 +1419,30 @@ export function assignBassFingering(bars: BassBar[], pitchShift = 0, strings: Ba
                   : stepGap === 2
                     ? 1.05
                     : 0.95;
+
+    // Check whether note i-1 and note i can be played as a connected same-string slide within playable frets.
+    let canSameStringSlide = false;
+    let canFrettedTarget = false;
+    const maxSlideFretFor = (s: number) => (s === 4 ? 9 : s === 3 ? 14 : 16);
+    if (slideB) {
+      for (let s = 0; s < strings; s++) {
+        const fB = midiB - BASS_TUNING[s];
+        if (fB >= 1 && fB <= maxSlideFretFor(s)) canFrettedTarget = true;
+      }
+    }
+    const allowOpenSlideDown = slideB === 'down' && midiA - midiB >= 7;
+    const minSlideTargetFret = slideB === 'up' ? 2 : allowOpenSlideDown || !canFrettedTarget ? 0 : 1;
+    if (slideB && restGap <= 18 && (slideB === 'up' ? midiB > midiA : midiB < midiA)) {
+      for (let s = 0; s < strings; s++) {
+        const maxF = maxSlideFretFor(s);
+        const fA = midiA - BASS_TUNING[s];
+        const fB = midiB - BASS_TUNING[s];
+        if (fA > 0 && fA <= maxF && fB >= minSlideTargetFret && fB <= maxF) {
+          canSameStringSlide = true;
+          break;
+        }
+      }
+    }
 
     const cLen = cur.len;
     const pLen = prev.len;
@@ -1108,6 +1470,26 @@ export function assignBassFingering(bars: BassBar[], pitchShift = 0, strings: Ba
         const fA = pF[k];
         const posA = pP[k];
         const samePitchCost = sameMidi && sA !== sB ? samePitchPen : 0;
+        const maxSlideF = maxSlideFretFor(sB);
+        const isSameStringSlide =
+          canSameStringSlide &&
+          sA === sB &&
+          fA > 0 &&
+          fA <= maxSlideF &&
+          fB >= minSlideTargetFret &&
+          fB <= maxSlideF &&
+          (slideB === 'up' ? fB > fA : fB < fA);
+
+        let slidePenalty = 0;
+        if (slideB) {
+          if (canSameStringSlide) {
+            if (!isSameStringSlide) slidePenalty = 7.5;
+          } else if (fB === 0 && canFrettedTarget) {
+            slidePenalty = 6.0;
+          } else if (slideB === 'up' && fB < 2 && canFrettedTarget) {
+            slidePenalty = 2.0;
+          }
+        }
 
         const dPos = posB > posA ? posB - posA : posA - posB;
         const df = fA > 0 && fB > 0 ? (fB > fA ? fB - fA : fA - fB) : 0;
@@ -1115,7 +1497,8 @@ export function assignBassFingering(bars: BassBar[], pitchShift = 0, strings: Ba
         if (dPos > 0) {
           const pShift = PHYS_DIST[posA * FRET_SPAN + posB];
           shiftCost = 0.65 + 0.6 * pShift + (dPos > 2 ? 0.4 * (dPos - 2) : 0);
-          if (sA === sB && fA > 0 && fB > 0 && df <= 3) shiftCost *= 0.75;
+          if (isSameStringSlide) shiftCost *= 0.25;
+          else if (sA === sB && fA > 0 && fB > 0 && df <= 3) shiftCost *= 0.75;
           // Allow an open string to ease the glide into the next fretted note, while discouraging
           // premature drift when entering an open string so large jumps cannot be split in two.
           if (fA === 0 && fB > 0) shiftCost *= 0.75;
@@ -1129,7 +1512,9 @@ export function assignBassFingering(bars: BassBar[], pitchShift = 0, strings: Ba
         if (fA > 0 && fB > 0) {
           const pDist = PHYS_DIST[fA * FRET_SPAN + fB];
           fingerMove = 0.08 * pDist;
-          if (df >= 4) {
+          if (isSameStringSlide) {
+            fingerMove *= 0.25;
+          } else if (df >= 4) {
             fingerMove += 0.95 * (df - 3) + 0.25 * pDist;
           } else if (df === 3 && ds >= 1 && !oct) {
             fingerMove += 0.35 + (fA <= 2 || fB <= 2 ? 0.25 : 0);
@@ -1147,7 +1532,7 @@ export function assignBassFingering(bars: BassBar[], pitchShift = 0, strings: Ba
           strCost = 2.6;
         }
 
-        const cand = basePrev + samePitchCost + (shiftCost + fingerMove + strCost) * scale;
+        const cand = basePrev + samePitchCost + slidePenalty + (shiftCost + fingerMove + strCost) * scale;
         if (cand < best) {
           best = cand;
           arg = k;

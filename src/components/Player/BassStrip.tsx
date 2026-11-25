@@ -158,7 +158,7 @@ function StripFrets({
               opacity: 0.55 + 0.45 * n.velocity,
             }}
           >
-            {n.fret}
+            {n.slide === 'up' ? `/${n.fret}` : n.slide === 'down' ? `\\${n.fret}` : n.fret}
           </span>
         ) : null,
       )}

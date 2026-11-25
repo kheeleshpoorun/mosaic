@@ -44,7 +44,8 @@ function isBassAnalysis(value: unknown): value is BassAnalysis {
           n.fret <= BASS_MAX_FRET &&
           Number.isInteger(n.duration) &&
           n.duration >= 1 &&
-          isNumber(n.velocity),
+          isNumber(n.velocity) &&
+          (n.slide === undefined || n.slide === 'up' || n.slide === 'down'),
       ),
   );
 }

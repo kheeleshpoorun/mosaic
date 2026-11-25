@@ -515,3 +515,130 @@ test('engraveBarRhythm produces Songsterr 16th beams, stub beamlets, dots, half/
   expect(sparse.restBeats).toEqual([1, 2]);
   expect(sparse.stems.find((s) => s.step === 12)?.flags).toBe(1);
 });
+
+test('detects upward and downward bass slides, keeps slides on the same fretted string, and formats / and \\ in tabs', () => {
+  /** Continuous phase-integrated bass glissando from midi0 to midi1 between [glideStart, glideEnd]. */
+  function slidePluck(out: Float32Array, midi0: number, midi1: number, t0: number, glideStart: number, glideEnd: number, t1: number, amp = 0.55) {
+    const i0 = Math.max(0, Math.round(t0 * SR));
+    const i1 = Math.min(out.length, Math.round(t1 * SR));
+    let phase = 0;
+    for (let i = i0; i < i1; i++) {
+      const absT = i / SR;
+      const relT = (i - i0) / SR;
+      const u = absT <= glideStart ? 0 : absT >= glideEnd ? 1 : (absT - glideStart) / Math.max(1e-4, glideEnd - glideStart);
+      const midi = midi0 + (midi1 - midi0) * u;
+      const f = 440 * Math.pow(2, (midi - 69) / 12);
+      phase += (2 * Math.PI * f) / SR;
+      const attack = Math.min(1, relT * 140);
+      const body = Math.exp(-relT * 1.1);
+      const bright = Math.exp(-relT * 6);
+      const fadeOut = i1 - i < SR * 0.015 ? (i1 - i) / (SR * 0.015) : 1;
+      const wave = body * Math.sin(phase) + (0.7 * Math.sin(2 * phase) + 0.35 * Math.sin(3 * phase)) * bright;
+      out[i] += amp * attack * fadeOut * wave;
+    }
+  }
+
+  const stepDur = BEAT / 4;
+  const barDur = 4 * BEAT;
+  const duration = START + 3 * barDur + 1;
+  const samples = new Float32Array(Math.round(duration * SR));
+
+  // Bar 0 step 15 -> Bar 1 step 0: pickup F1 (29) sliding up to A1 (33 = 5th fret on E string, never open A0)
+  const b0End = START + barDur;
+  slidePluck(samples, 29, 33, b0End - stepDur, b0End - 0.02, b0End + 0.16, START + 2 * barDur - 0.08);
+
+  // Bar 2: E2 (40) on beat 1 sliding down to C#2 (37) on beat 3 on the A string (7 \ 4)
+  const b2Start = START + 2 * barDur;
+  slidePluck(samples, 40, 37, b2Start, b2Start + 1.55 * BEAT, b2Start + 2.05 * BEAT, b2Start + 3.8 * BEAT);
+
+  const result = analyzeBass({
+    samples,
+    sampleRate: SR,
+    beats: beatGrid(BPM, START, duration - 0.2),
+    downbeat: 0,
+    meter: 4,
+    division: 4,
+    swing: false,
+    duration,
+  });
+
+  const [b0, b1, b2] = barsFromStart(result, 3);
+  expect(b0.notes.at(-1)).toMatchObject({ midi: 29, string: 3, fret: 1 });
+  expect(b1.notes[0]).toMatchObject({ step: 0, midi: 33, string: 3, fret: 5, slide: 'up' });
+
+  expect(b2.notes[0]).toMatchObject({ step: 0, midi: 40, string: 2, fret: 7 });
+  const downNote = b2.notes.find((n) => n.midi === 37);
+  expect(downNote).toMatchObject({ midi: 37, string: 2, fret: 4, slide: 'down' });
+
+  const md = formatBassTabMarkdown({
+    title: 'Slide Test',
+    analysis: { meter: 4, division: 4, swing: false, bars: [b0, b1, b2] },
+    bpm: BPM,
+  });
+  expect(md).toContain('|/5');
+  expect(md).toContain('\\4');
+});
+
+test('simplifies busy bass stems by rejecting percussive ghost thumps, attack scoops, and unplucked release sags', () => {
+  const stepDur = BEAT / 4;
+  const barDur = 4 * BEAT;
+  const duration = START + 2 * barDur + 1;
+  const samples = new Float32Array(Math.round(duration * SR));
+
+  for (let b = 0; b < 2; b++) {
+    const base = START + b * barDur;
+    // Step 2: A1 (33) followed by a quiet, unplucked 1-semitone release sag on step 3
+    pluck(samples, 33, base + 2 * stepDur, base + 3.1 * stepDur, 0.58);
+    const sagStart = Math.round((base + 3.1 * stepDur) * SR);
+    const sagEnd = Math.round((base + 3.85 * stepDur) * SR);
+    const fSag = 440 * Math.pow(2, (32 - 69) / 12);
+    for (let i = sagStart; i < sagEnd; i++) {
+      const t = (i - sagStart) / SR;
+      samples[i] += 0.14 * Math.exp(-t * 12) * Math.sin(2 * Math.PI * fSag * t);
+    }
+
+    // Step 4: B1 (35) preceded by a 45ms 1-semitone attack transient scoop from Bb1 (34)
+    const scoop0 = Math.round((base + 4 * stepDur) * SR);
+    const main1 = Math.round((base + 5.8 * stepDur) * SR);
+    let phase = 0;
+    for (let i = scoop0; i < main1; i++) {
+      const rel = (i - scoop0) / SR;
+      const m = rel < 0.045 ? 34 : 35;
+      const f = 440 * Math.pow(2, (m - 69) / 12);
+      phase += (2 * Math.PI * f) / SR;
+      const env = Math.min(1, rel * 160) * Math.exp(-rel * 2.8);
+      samples[i] += 0.56 * env * (Math.sin(phase) + 0.65 * Math.sin(2 * phase));
+    }
+
+    // Step 7: Percussive finger-mute thump (unpitched low-frequency burst)
+    let seed = 101 + b;
+    const thump0 = Math.round((base + 7 * stepDur) * SR);
+    const thump1 = Math.round((base + 7.55 * stepDur) * SR);
+    for (let i = thump0; i < thump1; i++) {
+      const rel = (i - thump0) / SR;
+      const white = (((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff) * 2 - 1);
+      samples[i] += 0.38 * Math.exp(-rel * 28) * white;
+    }
+
+    // Step 10: Clean sustained C#2 (37)
+    pluck(samples, 37, base + 10 * stepDur, base + 13 * stepDur, 0.58);
+  }
+
+  const result = analyzeBass({
+    samples,
+    sampleRate: SR,
+    beats: beatGrid(BPM, START, duration - 0.2),
+    downbeat: 0,
+    meter: 4,
+    division: 4,
+    swing: false,
+    duration,
+  });
+
+  const [b0] = barsFromStart(result, 1);
+  expect(b0.notes.map((n) => [n.step, n.midi])).toEqual([
+    [2, 33],
+    [4, 35],
+    [10, 37],
+  ]);
+});

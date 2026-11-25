@@ -300,7 +300,26 @@ export const BassTabSystem = memo(function BassTabSystem({
               </g>
             )}
 
-            {/* Fret numbers with knockout masks */}
+            {/* Fret numbers with knockout masks and legato slide lines */}
+            {bar.notes.map((n, ni) => {
+              if (n.string >= strings || !n.slide) return null;
+              const cx = xStep(n.step);
+              const cy = stringY(n.string);
+              const w = n.fret >= 10 ? 15 : 10;
+              const prev = ni > 0 ? bar.notes[ni - 1] : null;
+              const fromPrev =
+                prev &&
+                prev.string === n.string &&
+                n.step > prev.step &&
+                n.step - prev.step <= division * 2 &&
+                (n.slide === 'up' ? n.fret > prev.fret : n.fret < prev.fret);
+              const prevW = prev && prev.fret >= 10 ? 15 : 10;
+              const x2 = cx - w / 2 - 1.5;
+              const x1 = fromPrev ? Math.min(x2 - 3, xStep(prev.step) + prevW / 2 + 1.5) : cx - w / 2 - 10;
+              const y1 = n.slide === 'up' ? cy + 3.5 : cy - 3.5;
+              const y2 = n.slide === 'up' ? cy - 2.5 : cy + 2.5;
+              return <line key={`sl-${n.step}-${ni}`} className="bass-tab__slide" x1={x1} y1={y1} x2={x2} y2={y2} />;
+            })}
             {bar.notes.map((n, ni) => {
               if (n.string >= strings) return null;
               const cx = xStep(n.step);

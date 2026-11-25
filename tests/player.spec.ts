@@ -657,7 +657,7 @@ test('the drum sheet docks a mini player to pause, play and seek without closing
   const mini = sheet.locator('.mini-player');
   await expect(mini).toBeVisible();
 
-  await mini.getByRole('button', { name: 'Play' }).click();
+  await mini.getByRole('button', { name: 'Play', exact: true }).click();
   await expect.poll(async () => (await engineState(page)).playing).toBe(true);
   await mini.getByRole('button', { name: 'Pause' }).click();
   await expect.poll(async () => (await engineState(page)).playing).toBe(false);
@@ -1463,4 +1463,94 @@ test('Bass page dock and loop/speed bar stay compact, aligned, and within bounds
   expect(Math.abs(desktop.loopA.y - desktop.toggle.y)).toBeLessThanOrEqual(2);
   expect(Math.abs(desktop.loopA.y - desktop.clear!.y)).toBeLessThanOrEqual(2);
   expect(Math.abs(desktop.loopA.y - desktop.speed.y)).toBeLessThanOrEqual(2);
+});
+
+test('Tujhe Kitna bass tab starts by sliding to the 5th fret on the E string and renders legato slides across views', async ({ page }) => {
+  test.slow();
+  await page.goto('./?song=tujhe-kitna-chahein-aur-hum&view=bass');
+  const sheet = page.getByRole('main', { name: 'Bass tab' });
+  await expect(sheet).toBeVisible({ timeout: 45_000 });
+  await expect.poll(() => sheet.locator('.songsterr__system').count(), { timeout: 45_000 }).toBeGreaterThan(10);
+
+  const summary = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => k.startsWith('mosaic:bass:') && k.endsWith(':tujhe-kitna-chahein-aur-hum'))!;
+    const analysis = JSON.parse(localStorage.getItem(key)!);
+    const activeBars = analysis.bars
+      .map((b: { notes: { step: number; midi: number; string: number; fret: number; slide?: string }[] }, idx: number) => ({ bar: idx + 1, notes: b.notes }))
+      .filter((b: { notes: unknown[] }) => b.notes.length > 0);
+    const slides = activeBars.flatMap((b: { bar: number; notes: { slide?: string; string: number; fret: number }[] }) =>
+      b.notes.filter((n) => n.slide).map((n) => ({ bar: b.bar, ...n })),
+    );
+    return { firstTwoActive: activeBars.slice(0, 2), slideCount: slides.length };
+  });
+
+  // First bass entry (Bars 11 -> 12): starts on E string (string 3) and slides up to fret 5 on the E string.
+  expect(summary.firstTwoActive[0].bar).toBe(11);
+  expect(summary.firstTwoActive[0].notes.at(-1)).toMatchObject({ string: 3, fret: 1 });
+  expect(summary.firstTwoActive[1].bar).toBe(12);
+  expect(summary.firstTwoActive[1].notes[0]).toMatchObject({ step: 0, string: 3, fret: 5, slide: 'up' });
+  expect(summary.slideCount).toBeGreaterThanOrEqual(15);
+
+  // Songsterr SVG tab renders diagonal slide lines (.bass-tab__slide).
+  expect(await sheet.locator('.bass-tab__slide').count()).toBeGreaterThanOrEqual(15);
+
+  // ASCII view shows /5 on the E string in Bars 11-12.
+  await sheet.getByRole('button', { name: 'ASCII' }).click();
+  await expect(sheet.locator('.bass-ascii')).toContainText('|/5');
+});
+
+test('replay button restarts song from 0:00 in both main transport and docked mini player', async ({ page }) => {
+  const { duration } = await engineState(page);
+
+  // 1. Paused mid-song -> clicking Replay jumps back to 0:00 and starts playback.
+  await clickSeek(page, 0.5);
+  await expect.poll(async () => (await engineState(page)).position).toBeGreaterThan(duration * 0.45);
+  await page.locator('.transport').getByRole('button', { name: 'Replay' }).click();
+  await expect.poll(async () => (await engineState(page)).playing).toBe(true);
+  await expect.poll(async () => (await engineState(page)).position).toBeLessThan(15);
+
+  // 2. Playing mid-song -> clicking Replay restarts from 0:00 without pausing.
+  await clickSeek(page, 0.6);
+  await expect.poll(async () => (await engineState(page)).position).toBeGreaterThan(duration * 0.5);
+  await page.locator('.transport').getByRole('button', { name: 'Replay' }).click();
+  expect((await engineState(page)).playing).toBe(true);
+  await expect.poll(async () => (await engineState(page)).position).toBeLessThan(15);
+
+  // 3. Docked MiniPlayer (inside Metronome sheet) also restarts playback from 0:00.
+  await page.getByRole('button', { name: 'Pause' }).click();
+  await clickSeek(page, 0.4);
+  await expect.poll(async () => (await engineState(page)).position).toBeGreaterThan(duration * 0.35);
+  await page.getByRole('button', { name: 'Metronome' }).click();
+  const miniReplay = page.locator('.mini-player').getByRole('button', { name: 'Replay' });
+  await expect(miniReplay).toBeVisible();
+  await miniReplay.click();
+  await expect.poll(async () => (await engineState(page)).playing).toBe(true);
+  await expect.poll(async () => (await engineState(page)).position).toBeLessThan(15);
+});
+
+test('Kabhi Na Kabhi bass tab simplifies ghost chatter to a clean Seggae groove', async ({ page }) => {
+  test.slow();
+  await page.goto('./?song=kabhi-na-kabhi-seggae-hindies-cover&view=bass');
+  const sheet = page.getByRole('main', { name: 'Bass tab' });
+  await expect(sheet).toBeVisible({ timeout: 45_000 });
+  await expect.poll(() => sheet.locator('.songsterr__system').count(), { timeout: 45_000 }).toBeGreaterThan(10);
+
+  const stats = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => k.startsWith('mosaic:bass:') && k.endsWith(':kabhi-na-kabhi-seggae-hindies-cover'))!;
+    const analysis = JSON.parse(localStorage.getItem(key)!);
+    const activeBars = analysis.bars.filter((b: { notes: unknown[] }) => b.notes.length > 0);
+    const totalNotes = activeBars.reduce((sum: number, b: { notes: unknown[] }) => sum + b.notes.length, 0);
+    const maxNotesInBar = Math.max(0, ...activeBars.map((b: { notes: unknown[] }) => b.notes.length));
+    return {
+      activeCount: activeBars.length,
+      totalNotes,
+      avgPerActiveBar: totalNotes / Math.max(1, activeBars.length),
+      maxNotesInBar,
+    };
+  });
+
+  expect(stats.activeCount).toBeGreaterThan(80);
+  expect(stats.totalNotes).toBeLessThanOrEqual(560);
+  expect(stats.avgPerActiveBar).toBeLessThanOrEqual(5.2);
+  expect(stats.maxNotesInBar).toBeLessThanOrEqual(8);
 });

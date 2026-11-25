@@ -101,14 +101,26 @@ function formatSystem(
       }
     }
 
+    const leadDash = stringNames.map(() => '-');
     const cells = stringNames.map(() => Array.from({ length: stepsPerBar }, () => '-'.repeat(colWidth)));
     for (const note of bar.notes) {
       if (note.step < 0 || note.step >= stepsPerBar || note.string < 0 || note.string >= stringNames.length) continue;
       const fStr = String(note.fret);
       cells[note.string][note.step] = fStr.padEnd(colWidth, '-');
+      if (note.slide) {
+        const sym = note.slide === 'up' ? '/' : '\\';
+        if (note.step === 0) {
+          leadDash[note.string] = sym;
+        } else {
+          const prevCell = cells[note.string][note.step - 1];
+          if (prevCell.endsWith('-')) {
+            cells[note.string][note.step - 1] = prevCell.slice(0, -1) + sym;
+          }
+        }
+      }
     }
     for (let s = 0; s < stringNames.length; s++) {
-      stringLines[s] += `-${cells[s].join('')}|`;
+      stringLines[s] += `${leadDash[s]}${cells[s].join('')}|`;
     }
 
     let counts = ' ';

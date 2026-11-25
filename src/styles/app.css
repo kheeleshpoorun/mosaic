@@ -1288,7 +1288,7 @@ button:disabled {
 /* transport */
 .transport {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: 1fr 1fr 1fr auto 1fr 1fr;
   align-items: center;
   justify-items: center;
   padding: 18px 12px 8px;
@@ -1372,7 +1372,7 @@ button:disabled {
   background: var(--surface);
 }
 
-/* mini player: thin seek bar, then time · ⏪ ▶ ⏩ · time */
+/* mini player: thin seek bar, then time · ↺ ⏪ ▶ ⏩ · time */
 .mini-player__seek {
   --rest-color: var(--track-seek);
   height: 24px;
@@ -1380,9 +1380,9 @@ button:disabled {
 
 .mini-player__row {
   display: grid;
-  grid-template-columns: 1fr auto auto auto 1fr;
+  grid-template-columns: 1fr auto auto auto auto 1fr;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
 }
 
 .mini-player__time {
@@ -1956,6 +1956,13 @@ button:disabled {
 .bass-tab__bg {
   fill: var(--surface);
   stroke: none;
+}
+
+.bass-tab__slide {
+  fill: none;
+  stroke: var(--text-secondary);
+  stroke-width: 1.5;
+  stroke-linecap: round;
 }
 
 .songsterr__bar.is-now .bass-tab__bg {
@@ -2757,7 +2764,8 @@ button:disabled {
   .drum-score-print__flag,
   .bass-score-print__stem,
   .bass-score-print__flag,
-  .bass-score-print__qrest {
+  .bass-score-print__qrest,
+  .bass-score-print__slide {
     fill: none;
     stroke: #111;
     stroke-width: 1.5;

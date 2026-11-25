@@ -323,6 +323,19 @@ export class Engine {
     else void this.play();
   }
 
+  replay() {
+    if (this.state.status !== 'ready') return;
+    this.offset = 0;
+    if (this.state.playing) {
+      this.startSources(0);
+      this.startMetronome();
+      this.listeners.forEach((fn) => fn());
+    } else {
+      this.listeners.forEach((fn) => fn());
+      void this.play();
+    }
+  }
+
   seek(time: number) {
     const t = Math.max(0, Math.min(time, this.state.duration - 0.01));
     this.offset = t;

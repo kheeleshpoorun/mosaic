@@ -1,6 +1,6 @@
 import type { Engine, EngineState } from '../../audio/Engine';
 import { formatTime } from '../../lib/format';
-import { ForwardIcon, PauseIcon, PlayIcon, RewindIcon } from '../icons';
+import { ForwardIcon, PauseIcon, PlayIcon, ReplayIcon, RewindIcon } from '../icons';
 import { LoopOverlay } from './LoopBar';
 import { Slider } from './Slider';
 
@@ -43,6 +43,9 @@ export function MiniPlayer({ engine, state, position, scrub, onScrub: setScrub }
       </div>
       <div className="mini-player__row">
         <span className="mini-player__time">{formatTime(shown)}</span>
+        <button type="button" className="icon-button" aria-label="Replay" title="Replay" disabled={!ready} onClick={() => engine.replay()}>
+          <ReplayIcon size={22} />
+        </button>
         <button type="button" className="icon-button" aria-label="Back 5 seconds" disabled={!ready} onClick={() => engine.skip(-5)}>
           <RewindIcon size={26} />
         </button>
